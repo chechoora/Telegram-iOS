@@ -94,7 +94,6 @@ func defaultAvailableSearchPanes(isForum: Bool, hasDownloads: Bool) -> [ChatList
     } else {
         result.append(.chats)
     }
-    result.append(.channels)
     result.append(.apps)
     result.append(contentsOf: [.media, .downloads, .links, .files, .music, .voice])
         
@@ -136,7 +135,7 @@ private final class ChatListSearchPendingPane {
         key: ChatListSearchPaneKey,
         hasBecomeReady: @escaping (ChatListSearchPaneKey) -> Void
     ) {
-        let paneNode = ChatListSearchListPaneNode(context: context, animationCache: animationCache, animationRenderer: animationRenderer, updatedPresentationData: updatedPresentationData, interaction: interaction, key: key, peersFilter: (key == .chats || key == .topics) ? peersFilter : [], requestPeerType: requestPeerType, location: location, searchQuery: searchQuery, searchOptions: searchOptions, navigationController: navigationController, parentController: parentController, globalPeerSearchContext: globalPeerSearchContext)
+        let paneNode = ChatListSearchListPaneNode(context: context, animationCache: animationCache, animationRenderer: animationRenderer, updatedPresentationData: updatedPresentationData, interaction: interaction, key: key, peersFilter: (key == .chats || key == .topics) ? peersFilter : [.excludeChannels], requestPeerType: requestPeerType, location: location, searchQuery: searchQuery, searchOptions: searchOptions, navigationController: navigationController, parentController: parentController, globalPeerSearchContext: globalPeerSearchContext)
         
         self.pane = ChatListSearchPaneWrapper(key: key, node: paneNode)
         self.disposable = (paneNode.isReady

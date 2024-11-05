@@ -9454,7 +9454,10 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                     progress?.set(.single(true))
                 case let .result(peer):
                     progress?.set(.single(false))
-                    
+                    if case .channel(_) = peer {
+                        return
+                    }
+                                        
                     if let peer {
                         var navigation = navigation
                         if case .default = navigation {

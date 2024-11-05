@@ -218,6 +218,10 @@ public final class ChatChannelSubscriberInputPanelNode: ChatInputPanelNode {
         
         switch action {
         case .join, .joinGroup, .applyToJoin:
+            if (peer is TelegramChannel) {
+                // TODO add toast that it's not allowed
+                return
+            }
             var delayActivity = false
             if let peer = peer as? TelegramChannel, case .broadcast = peer.info {
                 delayActivity = true

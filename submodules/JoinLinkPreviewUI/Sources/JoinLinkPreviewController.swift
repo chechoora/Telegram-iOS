@@ -82,6 +82,10 @@ public final class JoinLinkPreviewController: ViewController {
                         if invite.flags.requestNeeded {
                             strongSelf.isRequest = true
                             strongSelf.isGroup = !invite.flags.isBroadcast
+                            if (!strongSelf.isGroup) {
+                                strongSelf.dismiss()
+                                return
+                            }
                             strongSelf.controllerNode.setRequestPeer(image: invite.photoRepresentation, title: invite.title, about: invite.about, memberCount: invite.participantsCount, isGroup: !invite.flags.isBroadcast, isVerified: invite.flags.isVerified, isFake: invite.flags.isFake, isScam: invite.flags.isScam)
                         } else {
                             let data = JoinLinkPreviewData(isGroup: !invite.flags.isBroadcast, isJoined: false)
