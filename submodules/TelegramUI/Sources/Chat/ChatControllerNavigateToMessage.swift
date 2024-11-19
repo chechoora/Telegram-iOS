@@ -277,6 +277,10 @@ extension ChatControllerImpl {
                     guard let self else {
                         return
                     }
+                    if case .channel(_) = peer {
+                        self.playShakeAnimation()
+                        return
+                    }
                     
                     if let index = index.0 {
                         let _ = index
