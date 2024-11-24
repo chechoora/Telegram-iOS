@@ -65,3 +65,7 @@ xcodeproj.bazelrc
 build-input/*
 **/*.pyc
 *.pyc
+build-system/appstore-configuration.json
+build-system/my-codesining
+build-system/my-appstore-configuration.json
+build-system/Make/GenerateProfiles.py
