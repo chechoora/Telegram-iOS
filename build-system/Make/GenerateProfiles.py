@@ -10,7 +10,7 @@ from BuildEnvironment import run_executable_with_output, check_run_system
 
 
 def get_certificate_base64():
-    certificate_data = run_executable_with_output('security', arguments=['find-certificate', '-c', 'Apple Distribution: Telegram FZ-LLC (C67CF9S4VU)', '-p'])
+    certificate_data = run_executable_with_output('security', arguments=['find-certificate', '-c', 'Apple Distribution: Kyrylo Kharchenko (NUQM9SMQSZ)', '-p'])
     certificate_data = certificate_data.replace('-----BEGIN CERTIFICATE-----', '')
     certificate_data = certificate_data.replace('-----END CERTIFICATE-----', '')
     certificate_data = certificate_data.replace('\n', '')
@@ -27,7 +27,7 @@ def process_provisioning_profile(source, destination, certificate_data):
     run_executable_with_output('plutil', arguments=['-insert', 'DeveloperCertificates.0', '-data', certificate_data, parsed_plist_file])
     run_executable_with_output('plutil', arguments=['-remove', 'DER-Encoded-Profile', parsed_plist_file])
 
-    run_executable_with_output('security', arguments=['cms', '-S', '-N', 'Apple Distribution: Telegram FZ-LLC (C67CF9S4VU)', '-i', parsed_plist_file, '-o', destination])    
+    run_executable_with_output('security', arguments=['cms', '-S', '-N', 'Apple Distribution: Kyrylo Kharchenko (NUQM9SMQSZ)', '-i', parsed_plist_file, '-o', destination])    
 
     os.unlink(parsed_plist_file)
 
