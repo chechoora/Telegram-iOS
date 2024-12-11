@@ -3627,6 +3627,7 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                 var isChannel = false
                 if case let .channel(peer) = peer, case .broadcast = peer.info {
                     isChannel = true
+                    return
                 }
                 var items: [ContextMenuItem] = [
                     .action(ContextMenuActionItem(text: isChannel ? strongSelf.presentationData.strings.Conversation_ContextMenuOpenChannelProfile : strongSelf.presentationData.strings.Conversation_ContextMenuOpenProfile, icon: { theme in
