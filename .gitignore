@@ -69,3 +69,4 @@ build-system/appstore-configuration.json
 build-system/my-codesining
 build-system/my-appstore-configuration.json
 build-system/Make/GenerateProfiles.py
+third-party/dav1d/dav1d
