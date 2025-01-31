@@ -2127,25 +2127,29 @@ private final class NotificationServiceHandler {
         var content = NotificationContent(isLockedMessage: nil)
         
         if let aps = payload["aps"] as? [String: Any] {
-            // Handle alert content
             if let alert = aps["alert"] as? [String: Any] {
                 content.title = alert["title"] as? String
                 content.body = alert["body"] as? String
             }
             
-            // Handle thread ID
             content.threadId = aps["thread-id"] as? String ??
                 (payload["from_id"] as? String ?? "\(payload["from_id"] as? Int64 ?? 0)")
             
-            // Handle sound
             if let sound = aps["sound"] as? String {
                 content.sound = sound
             }
             
-            // Handle category
-            content.category = aps["category"] as? String
+            // Convert reply category to message category to preserve tap-to-open while removing reply action
+            if let category = aps["category"] as? String {
+                // "r" - reply
+                // "m" - message
+                // "g" - group
+                // "t" - reaction
+                // "str" - story reaction
+                // "st" - story
+                content.category = category == "r" ? "m" : category
+            }
             
-            // Add message ID to user info
             var userInfo: [AnyHashable: Any] = [:]
             if let msgId = payload["msg_id"] {
                 userInfo["msg_id"] = msgId
@@ -2155,6 +2159,7 @@ private final class NotificationServiceHandler {
             }
             content.userInfo = userInfo
         }
+        
         let center = UNUserNotificationCenter.current()
         center.getDeliveredNotifications { notifications in
             let badgeCount = notifications.count
@@ -2162,7 +2167,6 @@ private final class NotificationServiceHandler {
             updateCurrentContent(content)
             completed()
         }
-
     }
 }
 
