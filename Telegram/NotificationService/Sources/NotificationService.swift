@@ -763,21 +763,6 @@ private final class NotificationServiceHandler {
         }
 
         Logger.shared.log("NotificationService \(episode)", "Begin processing payload")
-
-        guard var encryptedPayload = payload["p"] as? String else {
-            Logger.shared.log("NotificationService \(episode)", "Invalid payload 1")
-            return nil
-        }
-        encryptedPayload = encryptedPayload.replacingOccurrences(of: "-", with: "+")
-        encryptedPayload = encryptedPayload.replacingOccurrences(of: "_", with: "/")
-        while encryptedPayload.count % 4 != 0 {
-            encryptedPayload.append("=")
-        }
-        guard let payloadData = Data(base64Encoded: encryptedPayload) else {
-            Logger.shared.log("NotificationService \(episode)", "Invalid payload 2")
-            return nil
-        }
-
         let _ = (combineLatest(queue: self.queue,
             self.accountManager.accountRecords(),
             self.accountManager.sharedData(keys: [
@@ -799,6 +784,22 @@ private final class NotificationServiceHandler {
                 automaticMediaDownloadSettings = MediaAutoDownloadSettings.defaultSettings
             }
             let shouldSynchronizeState = true//automaticMediaDownloadSettings.energyUsageSettings.synchronizeInBackground
+            
+            guard var encryptedPayload = payload["p"] as? String else {
+                Logger.shared.log("NotificationService \(episode)", "Invalid payload 1")
+                self?.proceeDecryptedPayload(payload: payload, updateCurrentContent: updateCurrentContent, completed: completed)
+                return
+            }
+            encryptedPayload = encryptedPayload.replacingOccurrences(of: "-", with: "+")
+            encryptedPayload = encryptedPayload.replacingOccurrences(of: "_", with: "/")
+            while encryptedPayload.count % 4 != 0 {
+                encryptedPayload.append("=")
+            }
+            guard let payloadData = Data(base64Encoded: encryptedPayload) else {
+                Logger.shared.log("NotificationService \(episode)", "Invalid payload 2")
+                self?.proceeDecryptedPayload(payload: payload, updateCurrentContent: updateCurrentContent, completed: completed)
+                return
+            }
 
             if let keyId = notificationPayloadKeyId(data: payloadData) {
                 outer: for listRecord in records.records {
@@ -2120,6 +2121,48 @@ private final class NotificationServiceHandler {
     deinit {
         self.pollDisposable.dispose()
         self.stateManager?.network.shouldKeepConnection.set(.single(false))
+    }
+    
+    private func proceeDecryptedPayload(payload: [AnyHashable: Any], updateCurrentContent: @escaping (NotificationContent) -> Void, completed: @escaping () -> Void) {
+        var content = NotificationContent(isLockedMessage: nil)
+        
+        if let aps = payload["aps"] as? [String: Any] {
+            // Handle alert content
+            if let alert = aps["alert"] as? [String: Any] {
+                content.title = alert["title"] as? String
+                content.body = alert["body"] as? String
+            }
+            
+            // Handle thread ID
+            content.threadId = aps["thread-id"] as? String ??
+                (payload["from_id"] as? String ?? "\(payload["from_id"] as? Int64 ?? 0)")
+            
+            // Handle sound
+            if let sound = aps["sound"] as? String {
+                content.sound = sound
+            }
+            
+            // Handle category
+            content.category = aps["category"] as? String
+            
+            // Add message ID to user info
+            var userInfo: [AnyHashable: Any] = [:]
+            if let msgId = payload["msg_id"] {
+                userInfo["msg_id"] = msgId
+            }
+            if let fromId = payload["from_id"] {
+                userInfo["from_id"] = fromId
+            }
+            content.userInfo = userInfo
+        }
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { notifications in
+            let badgeCount = notifications.count
+            content.badge = badgeCount + 1
+            updateCurrentContent(content)
+            completed()
+        }
+
     }
 }
 
