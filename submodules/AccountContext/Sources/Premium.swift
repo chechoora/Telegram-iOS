@@ -149,7 +149,7 @@ public enum StarsPurchasePurpose: Equatable {
 public struct PremiumConfiguration {
     public static var defaultValue: PremiumConfiguration {
         return PremiumConfiguration(
-            isPremiumDisabled: false,
+            isPremiumDisabled: true,
             areStarsDisabled: true,
             subscriptionManagementUrl: "",
             showPremiumGiftInAttachMenu: false,
@@ -236,7 +236,7 @@ public struct PremiumConfiguration {
         minGroupEmojiPackLevel: Int32,
         minGroupAudioTranscriptionLevel: Int32
     ) {
-        self.isPremiumDisabled = isPremiumDisabled
+        self.isPremiumDisabled = true
         self.areStarsDisabled = areStarsDisabled
         self.subscriptionManagementUrl = subscriptionManagementUrl
         self.showPremiumGiftInAttachMenu = showPremiumGiftInAttachMenu
