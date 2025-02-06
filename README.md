@@ -55,32 +55,6 @@ python3 build-system/Make/Make.py \
 2. Select an iOS simulator
 3. Build and run the project (⌘R)
 
-## Preparing for App Store Distribution
-
-### Create App Store Connect Record
-
-1. Go to https://appstoreconnect.apple.com
-2. Click "My Apps" and "+"
-3. Select "New App"
-4. Fill in details:
-   - Platform: iOS
-   - Name: [Your App Name]
-   - Bundle ID: org.[random identifier].Telegram
-   - SKU: [random identifier]
-
-### Generate Certificates
-
-#### Development Certificate
-1. Go to https://developer.apple.com/account/resources/certificates/list
-2. Create iOS App Development certificate
-3. Generate Certificate Signing Request (CSR) using Keychain Access
-
-#### Distribution Certificate
-1. Return to certificates page
-2. Create "App Store and Ad Hoc" certificate
-3. Upload CSR
-4. Download and install certificate
-
 ## APNS (Apple Push Notification Service) Certificates
 
 ### Generating APNS Certificate
@@ -117,6 +91,32 @@ python3 build-system/Make/Make.py \
    - You'll be prompted for the .p12 export password
    - The `-nodes` flag prevents encryption
    - The `-clcerts` flag extracts only client certificates
+
+## Preparing for App Store Distribution
+
+### Create App Store Connect Record
+
+1. Go to https://appstoreconnect.apple.com
+2. Click "My Apps" and "+"
+3. Select "New App"
+4. Fill in details:
+   - Platform: iOS
+   - Name: [Your App Name]
+   - Bundle ID: org.[random identifier].Telegram
+   - SKU: [random identifier]
+
+### Generate Certificates
+
+#### Development Certificate
+1. Go to https://developer.apple.com/account/resources/certificates/list
+2. Create iOS App Development certificate
+3. Generate Certificate Signing Request (CSR) using Keychain Access
+
+#### Distribution Certificate
+1. Return to certificates page
+2. Create "App Store and Ad Hoc" certificate
+3. Upload CSR
+4. Download and install certificate
 
 ### Codesigning Folder Structure
 
