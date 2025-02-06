@@ -88,9 +88,6 @@ python3 build-system/Make/Make.py \
    # Convert the certificate to PEM format
    openssl pkcs12 -in apns-cert.p12 -out apns-cert.pem -nodes -clcerts
    ```
-   - You'll be prompted for the .p12 export password
-   - The `-nodes` flag prevents encryption
-   - The `-clcerts` flag extracts only client certificates
 
 ## Preparing for App Store Distribution
 
