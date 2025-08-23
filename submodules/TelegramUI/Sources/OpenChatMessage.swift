@@ -227,7 +227,7 @@ func openChatMessageImpl(_ params: OpenChatMessageParams) -> Bool {
                 params.dismissInput()
                 let presentationData = params.context.sharedContext.currentPresentationData.with { $0 }
                 if immediateShare {
-                    let controller = ShareController(context: params.context, subject: .media(.standalone(media: file)), immediateExternalShare: true)
+                    let controller = ShareController(context: params.context, subject: .media(.standalone(media: file), nil), immediateExternalShare: true)
                     params.present(controller, nil, .window(.root))
                 } else if let rootController = params.navigationController?.view.window?.rootViewController {
                     let proceed = {
@@ -255,7 +255,10 @@ func openChatMessageImpl(_ params: OpenChatMessageParams) -> Bool {
                                 subject = .document(file: .message(message: MessageReference(params.message), media: file), canShare: canShare)
                             }
                             let controller = BrowserScreen(context: params.context, subject: subject)
-                            controller.openDocument = { file, canShare in
+                            controller.openDocument = { [weak controller] file, canShare in
+                                guard let controller else {
+                                    return
+                                }
                                 controller.dismiss()
                                 
                                 presentDocumentPreviewController(rootController: rootController, theme: presentationData.theme, strings: presentationData.strings, postbox: params.context.account.postbox, file: file, canShare: canShare)
@@ -318,18 +321,38 @@ func openChatMessageImpl(_ params: OpenChatMessageParams) -> Bool {
                 })
             case let .gallery(gallery):
                 params.dismissInput()
+            
+                if GalleryController.maybeExpandPIP(context: params.context, messageId: params.message.id) {
+                    return true
+                }
+            
+                params.blockInteraction.set(.single(true))
+            
+                var presentInCurrent = false
+                if let channel = params.message.peers[params.message.id.peerId] as? TelegramChannel, case .broadcast = channel.info {
+                    if let layout = params.navigationController?.validLayout, case .regular = layout.metrics.widthClass {   
+                    } else {
+                        presentInCurrent = true
+                    }
+                }
+
                 let _ = (gallery
                 |> deliverOnMainQueue).startStandalone(next: { gallery in
+                    params.blockInteraction.set(.single(false))
+                    
                     gallery.centralItemUpdated = { messageId in
                         params.centralItemUpdated?(messageId)
                     }
-                    params.present(gallery, GalleryControllerPresentationArguments(transitionArguments: { messageId, media in
+                    
+                    let arguments = GalleryControllerPresentationArguments(transitionArguments: { messageId, media in
                         let selectedTransitionNode = params.transitionNode(messageId, media, false)
                         if let selectedTransitionNode = selectedTransitionNode {
                             return GalleryTransitionArguments(transitionNode: selectedTransitionNode, addToTransitionSurface: params.addToTransitionSurface)
                         }
                         return nil
-                    }), params.message.adAttribute != nil ? .current : .window(.root))
+                    })
+                    
+                    params.present(gallery, arguments, presentInCurrent ? .current : .window(.root))
                 })
                 return true
             case let .secretGallery(gallery):

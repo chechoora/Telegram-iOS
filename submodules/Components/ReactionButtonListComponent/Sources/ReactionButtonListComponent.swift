@@ -501,7 +501,7 @@ public final class ReactionButtonAsyncNode: ContextControllerSourceView {
                 animationFraction = max(0.0, min(1.0, (CACurrentMediaTime() - animationState.startTime) / animationState.duration))
                 animationFraction = animationState.curve.solve(at: animationFraction)
                 if animationState.fromExtracted != isExtracted {
-                    fixedTransitionDirection = isExtracted ? true : false
+                    fixedTransitionDirection = isExtracted
                 }
             } else {
                 animationFraction = 1.0
@@ -842,11 +842,13 @@ public final class ReactionButtonAsyncNode: ContextControllerSourceView {
                 let compactString = countString(Int64(spec.component.count))
                 #endif
                 
-                for character in compactString {
-                    counterComponents.append(String(character))
-                }
-                for character in "\(spec.component.count)" {
-                    extractedCounterComponents.append(String(character))
+                if spec.component.count != 0 {
+                    for character in compactString {
+                        counterComponents.append(String(character))
+                    }
+                    for character in "\(spec.component.count)" {
+                        extractedCounterComponents.append(String(character))
+                    }
                 }
             }
             
@@ -1225,7 +1227,9 @@ public final class ReactionButtonAsyncNode: ContextControllerSourceView {
                 
                 let tintColor: UIColor
                 if layout.backgroundLayout.colors.isSelected {
-                    if layout.spec.component.colors.selectedForeground != 0 {
+                    if layout.spec.component.colors.selectedIconTintColor != 0 {
+                        tintColor = UIColor(argb: layout.spec.component.colors.selectedIconTintColor)
+                    } else if layout.spec.component.colors.selectedForeground != 0 {
                         tintColor = UIColor(argb: layout.spec.component.colors.selectedForeground)
                     } else {
                         tintColor = .white
@@ -1352,6 +1356,7 @@ public final class ReactionButtonComponent: Equatable {
         public var selectedBackground: UInt32
         public var deselectedForeground: UInt32
         public var selectedForeground: UInt32
+        public var selectedIconTintColor: UInt32
         public var deselectedStarsBackground: UInt32
         public var selectedStarsBackground: UInt32
         public var deselectedStarsForeground: UInt32
@@ -1367,6 +1372,7 @@ public final class ReactionButtonComponent: Equatable {
             selectedBackground: UInt32,
             deselectedForeground: UInt32,
             selectedForeground: UInt32,
+            selectedIconTintColor: UInt32,
             deselectedStarsBackground: UInt32,
             selectedStarsBackground: UInt32,
             deselectedStarsForeground: UInt32,
@@ -1381,6 +1387,7 @@ public final class ReactionButtonComponent: Equatable {
             self.selectedBackground = selectedBackground
             self.deselectedForeground = deselectedForeground
             self.selectedForeground = selectedForeground
+            self.selectedIconTintColor = selectedIconTintColor
             self.deselectedStarsBackground = deselectedStarsBackground
             self.selectedStarsBackground = selectedStarsBackground
             self.deselectedStarsForeground = deselectedStarsForeground

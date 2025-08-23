@@ -62,8 +62,9 @@ final class ChatListSearchInteraction {
     let openStories: ((PeerId, ASDisplayNode) -> Void)?
     let switchToFilter: (ChatListSearchPaneKey) -> Void
     let dismissSearch: () -> Void
+    let openAdInfo: (ASDisplayNode, AdPeer) -> Void
     
-    init(openPeer: @escaping (EnginePeer, EnginePeer?, Int64?, Bool) -> Void, openDisabledPeer: @escaping (EnginePeer, Int64?, ChatListDisabledPeerReason) -> Void, openMessage: @escaping (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void, openUrl: @escaping (String) -> Void, clearRecentSearch: @escaping () -> Void, addContact: @escaping (String) -> Void, toggleMessageSelection: @escaping (EngineMessage.Id, Bool) -> Void, messageContextAction: @escaping ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?, ChatListSearchPaneKey, (id: String, size: Int64, isFirstInList: Bool)?) -> Void), mediaMessageContextAction: @escaping ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?) -> Void), peerContextAction: ((EnginePeer, ChatListSearchContextActionSource, ASDisplayNode, ContextGesture?, CGPoint?) -> Void)?, present: @escaping (ViewController, Any?) -> Void, dismissInput: @escaping () -> Void, getSelectedMessageIds: @escaping () -> Set<EngineMessage.Id>?, openStories: ((PeerId, ASDisplayNode) -> Void)?, switchToFilter: @escaping (ChatListSearchPaneKey) -> Void, dismissSearch: @escaping () -> Void) {
+    init(openPeer: @escaping (EnginePeer, EnginePeer?, Int64?, Bool) -> Void, openDisabledPeer: @escaping (EnginePeer, Int64?, ChatListDisabledPeerReason) -> Void, openMessage: @escaping (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void, openUrl: @escaping (String) -> Void, clearRecentSearch: @escaping () -> Void, addContact: @escaping (String) -> Void, toggleMessageSelection: @escaping (EngineMessage.Id, Bool) -> Void, messageContextAction: @escaping ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?, ChatListSearchPaneKey, (id: String, size: Int64, isFirstInList: Bool)?) -> Void), mediaMessageContextAction: @escaping ((EngineMessage, ASDisplayNode?, CGRect?, UIGestureRecognizer?) -> Void), peerContextAction: ((EnginePeer, ChatListSearchContextActionSource, ASDisplayNode, ContextGesture?, CGPoint?) -> Void)?, present: @escaping (ViewController, Any?) -> Void, dismissInput: @escaping () -> Void, getSelectedMessageIds: @escaping () -> Set<EngineMessage.Id>?, openStories: ((PeerId, ASDisplayNode) -> Void)?, switchToFilter: @escaping (ChatListSearchPaneKey) -> Void, dismissSearch: @escaping () -> Void, openAdInfo: @escaping (ASDisplayNode, AdPeer) -> Void) {
         self.openPeer = openPeer
         self.openDisabledPeer = openDisabledPeer
         self.openMessage = openMessage
@@ -80,6 +81,7 @@ final class ChatListSearchInteraction {
         self.openStories = openStories
         self.switchToFilter = switchToFilter
         self.dismissSearch = dismissSearch
+        self.openAdInfo = openAdInfo
     }
 }
 
@@ -103,6 +105,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
     private let navigationController: NavigationController?
     
     var dismissSearch: (() -> Void)?
+    var openAdInfo: ((ASDisplayNode, AdPeer) -> Void)?
     
     private let dimNode: ASDisplayNode
     let filterContainerNode: ChatListSearchFiltersContainerNode
@@ -154,6 +157,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
     
     private let sharedOpenStoryDisposable = MetaDisposable()
     private var recentAppsDisposable: Disposable?
+    private var refreshedGlobalPostSearchStateDisposable: Disposable?
     
     public init(context: AccountContext, animationCache: AnimationCache, animationRenderer: MultiAnimationRenderer, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil, filter: ChatListNodePeersFilter, requestPeerType: [ReplyMarkupButtonRequestPeerType]?, location: ChatListControllerLocation, displaySearchFilters: Bool, hasDownloads: Bool, initialFilter: ChatListSearchFilter = .chats, openPeer originalOpenPeer: @escaping (EnginePeer, EnginePeer?, Int64?, Bool) -> Void, openDisabledPeer: @escaping (EnginePeer, Int64?, ChatListDisabledPeerReason) -> Void, openRecentPeerOptions: @escaping (EnginePeer) -> Void, openMessage originalOpenMessage: @escaping (EnginePeer, Int64?, EngineMessage.Id, Bool) -> Void, addContact: ((String) -> Void)?, peerContextAction: ((EnginePeer, ChatListSearchContextActionSource, ASDisplayNode, ContextGesture?, CGPoint?) -> Void)?, present: @escaping (ViewController, Any?) -> Void, presentInGlobalOverlay: @escaping (ViewController, Any?) -> Void, navigationController: NavigationController?, parentController: @escaping () -> ViewController?) {
         var initialFilter = initialFilter
@@ -304,6 +308,8 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
             }
         }, dismissSearch: { [weak self] in
             self?.dismissSearch?()
+        }, openAdInfo: { [weak self] node, adPeer in
+            self?.openAdInfo?(node, adPeer)
         })
         self.paneContainerNode.interaction = interaction
         
@@ -340,6 +346,8 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
                 key = .channels
             case .apps:
                 key = .apps
+            case .globalPosts:
+                key = .globalPosts
             case .media:
                 key = .media
             case .downloads:
@@ -352,6 +360,8 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
                 key = .music
             case .voice:
                 key = .voice
+            case .instantVideo:
+                key = .instantVideo
             case .publicPosts:
                 key = .publicPosts
             case let .date(minDate, maxDate, title):
@@ -381,7 +391,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
                 switch filter {
                 case let .filter(filter):
                     switch filter {
-                    case .downloads, .channels, .apps:
+                    case .downloads, .channels, .apps, .globalPosts:
                         return false
                     default:
                         return true
@@ -522,6 +532,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
         }
         
         self.recentAppsDisposable = context.engine.peers.managedUpdatedRecentApps().startStrict()
+        self.refreshedGlobalPostSearchStateDisposable = context.engine.messages.refreshGlobalPostSearchState().startStrict()
         
         self._ready.set(self.paneContainerNode.isReady.get()
         |> map { _ in Void() })
@@ -534,6 +545,7 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
         self.shareStatusDisposable?.dispose()
         self.sharedOpenStoryDisposable.dispose()
         self.recentAppsDisposable?.dispose()
+        self.refreshedGlobalPostSearchStateDisposable?.dispose()
         
         self.copyProtectionTooltipController?.dismiss()
     }
@@ -565,6 +577,12 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
         self.selectionPanelNode?.selectedMessages = self.stateValue.selectedMessageIds ?? []
     }
 
+    public func removeAds() {
+        for pane in self.paneContainerNode.currentPanes.values {
+            pane.node.removeAds()
+        }
+    }
+    
     private var currentSearchOptions: ChatListSearchOptions {
         return self.searchOptionsValue ?? ChatListSearchOptions(peer: nil, date: nil)
     }
@@ -662,6 +680,8 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
             filterKey = .channels
         case .apps:
             filterKey = .apps
+        case .globalPosts:
+            filterKey = .globalPosts
         case .media:
             filterKey = .media
         case .downloads:
@@ -674,6 +694,8 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
             filterKey = .music
         case .voice:
             filterKey = .voice
+        case .instantVideo:
+            filterKey = .instantVideo
         case .publicPosts:
             filterKey = .publicPosts
         }
@@ -714,6 +736,8 @@ public final class ChatListSearchContainerNode: SearchDisplayControllerContentNo
             key = .music
         case .voice:
             key = .voice
+        case .instantVideo:
+            key = .instantVideo
         case .downloads:
             key = .downloads
         default:

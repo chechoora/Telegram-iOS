@@ -372,7 +372,7 @@ private enum ChannelAdminEntry: ItemListNodeEntry {
                     arguments.dismissInput()
                 })
             case let .rankInfo(_, text, trimBottomInset):
-                return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section, trimBottomInset: trimBottomInset)
+                return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section, additionalOuterInsets: UIEdgeInsets(top: 0.0, left: 0.0, bottom: trimBottomInset ? -44.0 : 0.0, right: 0.0))
             case let .adminRights(_, text, value):
                 return ItemListSwitchItem(presentationData: presentationData, title: text, value: value, type: .regular, enabled: true, sectionId: self.section, style: .blocks, updated: { value in
                     arguments.updateAdminRights(value)
@@ -535,6 +535,8 @@ private func stringForRight(strings: PresentationStrings, right: TelegramChatAdm
         } else {
             return strings.Channel_AdminLog_CanManageCalls
         }
+    } else if right.contains(.canManageDirect) {
+        return strings.Channel_AdminLog_CanManageDirect
     } else if right.contains(.canPostStories) {
         return strings.Channel_EditAdmin_PermissionPostStories
     } else if right.contains(.canEditStories) {
@@ -562,6 +564,8 @@ private func rightDependencies(_ right: TelegramChatAdminRightsFlags) -> [Telegr
     } else if right.contains(.canPinMessages) {
         return []
     } else if right.contains(.canAddAdmins) {
+        return []
+    } else if right.contains(.canManageDirect) {
         return []
     } else if right.contains(.canManageCalls) {
         return []
@@ -655,6 +659,7 @@ private func channelAdminControllerEntries(presentationData: PresentationData, s
                     .sub(.messages, messageRelatedFlags),
                     .sub(.stories, storiesRelatedFlags),
                     .direct(.canInviteUsers),
+                    .direct(.canManageDirect),
                     .direct(.canManageCalls),
                     .direct(.canAddAdmins)
                 ]
@@ -1247,7 +1252,7 @@ public func channelAdminController(context: AccountContext, updatedPresentationD
                         }
                         
                         if let adminPeer, case let .restricted(forbiddenPeer) = error {
-                            let inviteScreen = SendInviteLinkScreen(context: context, peer: channelPeer, link: exportedInvitation?.link, peers: [forbiddenPeer ?? TelegramForbiddenInvitePeer(peer: adminPeer, canInviteWithPremium: false, premiumRequiredToContact: false)])
+                            let inviteScreen = SendInviteLinkScreen(context: context, subject: .chat(peer: channelPeer, link: exportedInvitation?.link), peers: [forbiddenPeer ?? TelegramForbiddenInvitePeer(peer: adminPeer, canInviteWithPremium: false, premiumRequiredToContact: false)])
                             pushControllerImpl?(inviteScreen)
                             
                             dismissImpl?()
@@ -1437,7 +1442,7 @@ public func channelAdminController(context: AccountContext, updatedPresentationD
                         updateRightsDisposable.set((context.peerChannelMemberCategoriesContextsManager.updateMemberAdminRights(engine: context.engine, peerId: peerId, memberId: adminId, adminRights: TelegramChatAdminRights(rights: updateFlags), rank: updateRank) |> deliverOnMainQueue).start(error: { error in
                             if case let .addMemberError(addMemberError) = error, case let .restricted(forbiddenPeer) = addMemberError, let admin = adminPeer {
                                 if let channelPeer {
-                                    let inviteScreen = SendInviteLinkScreen(context: context, peer: channelPeer, link: exportedInvitation?.link, peers: [forbiddenPeer ?? TelegramForbiddenInvitePeer(peer: admin, canInviteWithPremium: false, premiumRequiredToContact: false)])
+                                    let inviteScreen = SendInviteLinkScreen(context: context, subject: .chat(peer: channelPeer, link: exportedInvitation?.link), peers: [forbiddenPeer ?? TelegramForbiddenInvitePeer(peer: admin, canInviteWithPremium: false, premiumRequiredToContact: false)])
                                     pushControllerImpl?(inviteScreen)
                                     
                                     dismissImpl?()
@@ -1519,7 +1524,7 @@ public func channelAdminController(context: AccountContext, updatedPresentationD
                                     )
                                     |> deliverOnMainQueue).startStandalone(next: { exportedInvitation in
                                         let _ = exportedInvitation
-                                        let inviteScreen = SendInviteLinkScreen(context: context, peer: .legacyGroup(group), link: exportedInvitation?.link, peers: [failedPeer])
+                                        let inviteScreen = SendInviteLinkScreen(context: context, subject: .chat(peer: .legacyGroup(group), link: exportedInvitation?.link), peers: [failedPeer])
                                         pushControllerImpl?(inviteScreen)
                                     })
                                 } else {

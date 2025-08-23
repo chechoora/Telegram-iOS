@@ -68,7 +68,18 @@ private func requestEditMessageInternal(accountPeerId: PeerId, postbox: Postbox,
             }
             return mediaContentToUpload(accountPeerId: accountPeerId, network: network, postbox: postbox, auxiliaryMethods: stateManager.auxiliaryMethods, transformOutgoingMessageMedia: transformOutgoingMessageMedia, messageMediaPreuploadManager: messageMediaPreuploadManager, revalidationContext: mediaReferenceRevalidationContext, forceReupload: forceReupload, isGrouped: false, passFetchProgress: false, forceNoBigParts: false, peerId: messageId.peerId, media: augmentedMedia, text: "", autoremoveMessageAttribute: nil, autoclearMessageAttribute: nil, messageId: nil, attributes: attributes, mediaReference: nil)
         }
-        if let uploadSignal = generateUploadSignal(forceReupload) {
+        if let todo = media.media as? TelegramMediaTodo {
+            var flags: Int32 = 0
+            if todo.flags.contains(.othersCanAppend) {
+                flags |= 1 << 0
+            }
+            if todo.flags.contains(.othersCanComplete) {
+                flags |= 1 << 1
+            }
+            let inputTodo = Api.InputMedia.inputMediaTodo(todo: .todoList(flags: flags, title: .textWithEntities(text: todo.text, entities: apiEntitiesFromMessageTextEntities(todo.textEntities, associatedPeers: SimpleDictionary())), list: todo.items.map { $0.apiItem }))
+            uploadedMedia = .single(.content(PendingMessageUploadedContentAndReuploadInfo(content: .media(inputTodo, text), reuploadInfo: nil, cacheReferenceKey: nil)))
+        }
+        else if let uploadSignal = generateUploadSignal(forceReupload) {
             uploadedMedia = .single(.progress(PendingMessageUploadedContentProgress(progress: 0.027)))
             |> then(uploadSignal)
             |> map { result -> PendingMessageUploadedContentResult? in
@@ -110,7 +121,7 @@ private func requestEditMessageInternal(accountPeerId: PeerId, postbox: Postbox,
             if text.isEmpty {
                 for media in message.media {
                     switch media {
-                        case _ as TelegramMediaImage, _ as TelegramMediaFile:
+                        case _ as TelegramMediaImage, _ as TelegramMediaFile, _ as TelegramMediaTodo:
                             break
                         default:
                             if let _ = scheduleTime {
@@ -208,7 +219,7 @@ private func requestEditMessageInternal(accountPeerId: PeerId, postbox: Postbox,
                     if let result = result {
                         return postbox.transaction { transaction -> RequestEditMessageResult in
                             var toMedia: Media?
-                            if let message = result.messages.first.flatMap({ StoreMessage(apiMessage: $0, accountPeerId: accountPeerId, peerIsForum: peer.isForum) }) {
+                            if let message = result.messages.first.flatMap({ StoreMessage(apiMessage: $0, accountPeerId: accountPeerId, peerIsForum: peer.isForumOrMonoForum) }) {
                                 toMedia = message.media.first
                             }
                             
@@ -224,7 +235,7 @@ private func requestEditMessageInternal(accountPeerId: PeerId, postbox: Postbox,
                                         let peers = AccumulatedPeers(transaction: transaction, chats: chats, users: users)
                                         updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: peers)
                                         
-                                        if let message = StoreMessage(apiMessage: message, accountPeerId: accountPeerId, peerIsForum: peer.isForum), case let .Id(id) = message.id {
+                                        if let message = StoreMessage(apiMessage: message, accountPeerId: accountPeerId, peerIsForum: peer.isForumOrMonoForum), case let .Id(id) = message.id {
                                             transaction.updateMessage(id, update: { previousMessage in
                                                 var updatedFlags = message.flags
                                                 var updatedLocalTags = message.localTags

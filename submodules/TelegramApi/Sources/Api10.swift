@@ -169,6 +169,8 @@ public extension Api {
 public extension Api {
     enum InputGroupCall: TypeConstructorDescription {
         case inputGroupCall(id: Int64, accessHash: Int64)
+        case inputGroupCallInviteMessage(msgId: Int32)
+        case inputGroupCallSlug(slug: String)
     
     public func serialize(_ buffer: Buffer, _ boxed: Swift.Bool) {
     switch self {
@@ -179,6 +181,18 @@ public extension Api {
                     serializeInt64(id, buffer: buffer, boxed: false)
                     serializeInt64(accessHash, buffer: buffer, boxed: false)
                     break
+                case .inputGroupCallInviteMessage(let msgId):
+                    if boxed {
+                        buffer.appendInt32(-1945083841)
+                    }
+                    serializeInt32(msgId, buffer: buffer, boxed: false)
+                    break
+                case .inputGroupCallSlug(let slug):
+                    if boxed {
+                        buffer.appendInt32(-33127873)
+                    }
+                    serializeString(slug, buffer: buffer, boxed: false)
+                    break
     }
     }
     
@@ -186,6 +200,10 @@ public extension Api {
         switch self {
                 case .inputGroupCall(let id, let accessHash):
                 return ("inputGroupCall", [("id", id as Any), ("accessHash", accessHash as Any)])
+                case .inputGroupCallInviteMessage(let msgId):
+                return ("inputGroupCallInviteMessage", [("msgId", msgId as Any)])
+                case .inputGroupCallSlug(let slug):
+                return ("inputGroupCallSlug", [("slug", slug as Any)])
     }
     }
     
@@ -203,22 +221,54 @@ public extension Api {
                 return nil
             }
         }
+        public static func parse_inputGroupCallInviteMessage(_ reader: BufferReader) -> InputGroupCall? {
+            var _1: Int32?
+            _1 = reader.readInt32()
+            let _c1 = _1 != nil
+            if _c1 {
+                return Api.InputGroupCall.inputGroupCallInviteMessage(msgId: _1!)
+            }
+            else {
+                return nil
+            }
+        }
+        public static func parse_inputGroupCallSlug(_ reader: BufferReader) -> InputGroupCall? {
+            var _1: String?
+            _1 = parseString(reader)
+            let _c1 = _1 != nil
+            if _c1 {
+                return Api.InputGroupCall.inputGroupCallSlug(slug: _1!)
+            }
+            else {
+                return nil
+            }
+        }
     
     }
 }
 public extension Api {
     indirect enum InputInvoice: TypeConstructorDescription {
+        case inputInvoiceBusinessBotTransferStars(bot: Api.InputUser, stars: Int64)
         case inputInvoiceChatInviteSubscription(hash: String)
         case inputInvoiceMessage(peer: Api.InputPeer, msgId: Int32)
         case inputInvoicePremiumGiftCode(purpose: Api.InputStorePaymentPurpose, option: Api.PremiumGiftCodeOption)
+        case inputInvoicePremiumGiftStars(flags: Int32, userId: Api.InputUser, months: Int32, message: Api.TextWithEntities?)
         case inputInvoiceSlug(slug: String)
-        case inputInvoiceStarGift(flags: Int32, userId: Api.InputUser, giftId: Int64, message: Api.TextWithEntities?)
-        case inputInvoiceStarGiftTransfer(msgId: Int32, toId: Api.InputUser)
-        case inputInvoiceStarGiftUpgrade(flags: Int32, msgId: Int32)
+        case inputInvoiceStarGift(flags: Int32, peer: Api.InputPeer, giftId: Int64, message: Api.TextWithEntities?)
+        case inputInvoiceStarGiftResale(flags: Int32, slug: String, toId: Api.InputPeer)
+        case inputInvoiceStarGiftTransfer(stargift: Api.InputSavedStarGift, toId: Api.InputPeer)
+        case inputInvoiceStarGiftUpgrade(flags: Int32, stargift: Api.InputSavedStarGift)
         case inputInvoiceStars(purpose: Api.InputStorePaymentPurpose)
     
     public func serialize(_ buffer: Buffer, _ boxed: Swift.Bool) {
     switch self {
+                case .inputInvoiceBusinessBotTransferStars(let bot, let stars):
+                    if boxed {
+                        buffer.appendInt32(-191267262)
+                    }
+                    bot.serialize(buffer, true)
+                    serializeInt64(stars, buffer: buffer, boxed: false)
+                    break
                 case .inputInvoiceChatInviteSubscription(let hash):
                     if boxed {
                         buffer.appendInt32(887591921)
@@ -239,34 +289,51 @@ public extension Api {
                     purpose.serialize(buffer, true)
                     option.serialize(buffer, true)
                     break
+                case .inputInvoicePremiumGiftStars(let flags, let userId, let months, let message):
+                    if boxed {
+                        buffer.appendInt32(-625298705)
+                    }
+                    serializeInt32(flags, buffer: buffer, boxed: false)
+                    userId.serialize(buffer, true)
+                    serializeInt32(months, buffer: buffer, boxed: false)
+                    if Int(flags) & Int(1 << 0) != 0 {message!.serialize(buffer, true)}
+                    break
                 case .inputInvoiceSlug(let slug):
                     if boxed {
                         buffer.appendInt32(-1020867857)
                     }
                     serializeString(slug, buffer: buffer, boxed: false)
                     break
-                case .inputInvoiceStarGift(let flags, let userId, let giftId, let message):
+                case .inputInvoiceStarGift(let flags, let peer, let giftId, let message):
                     if boxed {
-                        buffer.appendInt32(634962392)
+                        buffer.appendInt32(-396206446)
                     }
                     serializeInt32(flags, buffer: buffer, boxed: false)
-                    userId.serialize(buffer, true)
+                    peer.serialize(buffer, true)
                     serializeInt64(giftId, buffer: buffer, boxed: false)
                     if Int(flags) & Int(1 << 1) != 0 {message!.serialize(buffer, true)}
                     break
-                case .inputInvoiceStarGiftTransfer(let msgId, let toId):
+                case .inputInvoiceStarGiftResale(let flags, let slug, let toId):
                     if boxed {
-                        buffer.appendInt32(-1371821587)
-                    }
-                    serializeInt32(msgId, buffer: buffer, boxed: false)
-                    toId.serialize(buffer, true)
-                    break
-                case .inputInvoiceStarGiftUpgrade(let flags, let msgId):
-                    if boxed {
-                        buffer.appendInt32(1589539426)
+                        buffer.appendInt32(-1012968668)
                     }
                     serializeInt32(flags, buffer: buffer, boxed: false)
-                    serializeInt32(msgId, buffer: buffer, boxed: false)
+                    serializeString(slug, buffer: buffer, boxed: false)
+                    toId.serialize(buffer, true)
+                    break
+                case .inputInvoiceStarGiftTransfer(let stargift, let toId):
+                    if boxed {
+                        buffer.appendInt32(1247763417)
+                    }
+                    stargift.serialize(buffer, true)
+                    toId.serialize(buffer, true)
+                    break
+                case .inputInvoiceStarGiftUpgrade(let flags, let stargift):
+                    if boxed {
+                        buffer.appendInt32(1300335965)
+                    }
+                    serializeInt32(flags, buffer: buffer, boxed: false)
+                    stargift.serialize(buffer, true)
                     break
                 case .inputInvoiceStars(let purpose):
                     if boxed {
@@ -279,25 +346,47 @@ public extension Api {
     
     public func descriptionFields() -> (String, [(String, Any)]) {
         switch self {
+                case .inputInvoiceBusinessBotTransferStars(let bot, let stars):
+                return ("inputInvoiceBusinessBotTransferStars", [("bot", bot as Any), ("stars", stars as Any)])
                 case .inputInvoiceChatInviteSubscription(let hash):
                 return ("inputInvoiceChatInviteSubscription", [("hash", hash as Any)])
                 case .inputInvoiceMessage(let peer, let msgId):
                 return ("inputInvoiceMessage", [("peer", peer as Any), ("msgId", msgId as Any)])
                 case .inputInvoicePremiumGiftCode(let purpose, let option):
                 return ("inputInvoicePremiumGiftCode", [("purpose", purpose as Any), ("option", option as Any)])
+                case .inputInvoicePremiumGiftStars(let flags, let userId, let months, let message):
+                return ("inputInvoicePremiumGiftStars", [("flags", flags as Any), ("userId", userId as Any), ("months", months as Any), ("message", message as Any)])
                 case .inputInvoiceSlug(let slug):
                 return ("inputInvoiceSlug", [("slug", slug as Any)])
-                case .inputInvoiceStarGift(let flags, let userId, let giftId, let message):
-                return ("inputInvoiceStarGift", [("flags", flags as Any), ("userId", userId as Any), ("giftId", giftId as Any), ("message", message as Any)])
-                case .inputInvoiceStarGiftTransfer(let msgId, let toId):
-                return ("inputInvoiceStarGiftTransfer", [("msgId", msgId as Any), ("toId", toId as Any)])
-                case .inputInvoiceStarGiftUpgrade(let flags, let msgId):
-                return ("inputInvoiceStarGiftUpgrade", [("flags", flags as Any), ("msgId", msgId as Any)])
+                case .inputInvoiceStarGift(let flags, let peer, let giftId, let message):
+                return ("inputInvoiceStarGift", [("flags", flags as Any), ("peer", peer as Any), ("giftId", giftId as Any), ("message", message as Any)])
+                case .inputInvoiceStarGiftResale(let flags, let slug, let toId):
+                return ("inputInvoiceStarGiftResale", [("flags", flags as Any), ("slug", slug as Any), ("toId", toId as Any)])
+                case .inputInvoiceStarGiftTransfer(let stargift, let toId):
+                return ("inputInvoiceStarGiftTransfer", [("stargift", stargift as Any), ("toId", toId as Any)])
+                case .inputInvoiceStarGiftUpgrade(let flags, let stargift):
+                return ("inputInvoiceStarGiftUpgrade", [("flags", flags as Any), ("stargift", stargift as Any)])
                 case .inputInvoiceStars(let purpose):
                 return ("inputInvoiceStars", [("purpose", purpose as Any)])
     }
     }
     
+        public static func parse_inputInvoiceBusinessBotTransferStars(_ reader: BufferReader) -> InputInvoice? {
+            var _1: Api.InputUser?
+            if let signature = reader.readInt32() {
+                _1 = Api.parse(reader, signature: signature) as? Api.InputUser
+            }
+            var _2: Int64?
+            _2 = reader.readInt64()
+            let _c1 = _1 != nil
+            let _c2 = _2 != nil
+            if _c1 && _c2 {
+                return Api.InputInvoice.inputInvoiceBusinessBotTransferStars(bot: _1!, stars: _2!)
+            }
+            else {
+                return nil
+            }
+        }
         public static func parse_inputInvoiceChatInviteSubscription(_ reader: BufferReader) -> InputInvoice? {
             var _1: String?
             _1 = parseString(reader)
@@ -343,6 +432,30 @@ public extension Api {
                 return nil
             }
         }
+        public static func parse_inputInvoicePremiumGiftStars(_ reader: BufferReader) -> InputInvoice? {
+            var _1: Int32?
+            _1 = reader.readInt32()
+            var _2: Api.InputUser?
+            if let signature = reader.readInt32() {
+                _2 = Api.parse(reader, signature: signature) as? Api.InputUser
+            }
+            var _3: Int32?
+            _3 = reader.readInt32()
+            var _4: Api.TextWithEntities?
+            if Int(_1!) & Int(1 << 0) != 0 {if let signature = reader.readInt32() {
+                _4 = Api.parse(reader, signature: signature) as? Api.TextWithEntities
+            } }
+            let _c1 = _1 != nil
+            let _c2 = _2 != nil
+            let _c3 = _3 != nil
+            let _c4 = (Int(_1!) & Int(1 << 0) == 0) || _4 != nil
+            if _c1 && _c2 && _c3 && _c4 {
+                return Api.InputInvoice.inputInvoicePremiumGiftStars(flags: _1!, userId: _2!, months: _3!, message: _4)
+            }
+            else {
+                return nil
+            }
+        }
         public static func parse_inputInvoiceSlug(_ reader: BufferReader) -> InputInvoice? {
             var _1: String?
             _1 = parseString(reader)
@@ -357,9 +470,9 @@ public extension Api {
         public static func parse_inputInvoiceStarGift(_ reader: BufferReader) -> InputInvoice? {
             var _1: Int32?
             _1 = reader.readInt32()
-            var _2: Api.InputUser?
+            var _2: Api.InputPeer?
             if let signature = reader.readInt32() {
-                _2 = Api.parse(reader, signature: signature) as? Api.InputUser
+                _2 = Api.parse(reader, signature: signature) as? Api.InputPeer
             }
             var _3: Int64?
             _3 = reader.readInt64()
@@ -372,23 +485,44 @@ public extension Api {
             let _c3 = _3 != nil
             let _c4 = (Int(_1!) & Int(1 << 1) == 0) || _4 != nil
             if _c1 && _c2 && _c3 && _c4 {
-                return Api.InputInvoice.inputInvoiceStarGift(flags: _1!, userId: _2!, giftId: _3!, message: _4)
+                return Api.InputInvoice.inputInvoiceStarGift(flags: _1!, peer: _2!, giftId: _3!, message: _4)
+            }
+            else {
+                return nil
+            }
+        }
+        public static func parse_inputInvoiceStarGiftResale(_ reader: BufferReader) -> InputInvoice? {
+            var _1: Int32?
+            _1 = reader.readInt32()
+            var _2: String?
+            _2 = parseString(reader)
+            var _3: Api.InputPeer?
+            if let signature = reader.readInt32() {
+                _3 = Api.parse(reader, signature: signature) as? Api.InputPeer
+            }
+            let _c1 = _1 != nil
+            let _c2 = _2 != nil
+            let _c3 = _3 != nil
+            if _c1 && _c2 && _c3 {
+                return Api.InputInvoice.inputInvoiceStarGiftResale(flags: _1!, slug: _2!, toId: _3!)
             }
             else {
                 return nil
             }
         }
         public static func parse_inputInvoiceStarGiftTransfer(_ reader: BufferReader) -> InputInvoice? {
-            var _1: Int32?
-            _1 = reader.readInt32()
-            var _2: Api.InputUser?
+            var _1: Api.InputSavedStarGift?
             if let signature = reader.readInt32() {
-                _2 = Api.parse(reader, signature: signature) as? Api.InputUser
+                _1 = Api.parse(reader, signature: signature) as? Api.InputSavedStarGift
+            }
+            var _2: Api.InputPeer?
+            if let signature = reader.readInt32() {
+                _2 = Api.parse(reader, signature: signature) as? Api.InputPeer
             }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
             if _c1 && _c2 {
-                return Api.InputInvoice.inputInvoiceStarGiftTransfer(msgId: _1!, toId: _2!)
+                return Api.InputInvoice.inputInvoiceStarGiftTransfer(stargift: _1!, toId: _2!)
             }
             else {
                 return nil
@@ -397,12 +531,14 @@ public extension Api {
         public static func parse_inputInvoiceStarGiftUpgrade(_ reader: BufferReader) -> InputInvoice? {
             var _1: Int32?
             _1 = reader.readInt32()
-            var _2: Int32?
-            _2 = reader.readInt32()
+            var _2: Api.InputSavedStarGift?
+            if let signature = reader.readInt32() {
+                _2 = Api.parse(reader, signature: signature) as? Api.InputSavedStarGift
+            }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
             if _c1 && _c2 {
-                return Api.InputInvoice.inputInvoiceStarGiftUpgrade(flags: _1!, msgId: _2!)
+                return Api.InputInvoice.inputInvoiceStarGiftUpgrade(flags: _1!, stargift: _2!)
             }
             else {
                 return nil
@@ -428,8 +564,8 @@ public extension Api {
     indirect enum InputMedia: TypeConstructorDescription {
         case inputMediaContact(phoneNumber: String, firstName: String, lastName: String, vcard: String)
         case inputMediaDice(emoticon: String)
-        case inputMediaDocument(flags: Int32, id: Api.InputDocument, ttlSeconds: Int32?, query: String?)
-        case inputMediaDocumentExternal(flags: Int32, url: String, ttlSeconds: Int32?)
+        case inputMediaDocument(flags: Int32, id: Api.InputDocument, videoCover: Api.InputPhoto?, videoTimestamp: Int32?, ttlSeconds: Int32?, query: String?)
+        case inputMediaDocumentExternal(flags: Int32, url: String, ttlSeconds: Int32?, videoCover: Api.InputPhoto?, videoTimestamp: Int32?)
         case inputMediaEmpty
         case inputMediaGame(id: Api.InputGame)
         case inputMediaGeoLive(flags: Int32, geoPoint: Api.InputGeoPoint, heading: Int32?, period: Int32?, proximityNotificationRadius: Int32?)
@@ -440,7 +576,8 @@ public extension Api {
         case inputMediaPhotoExternal(flags: Int32, url: String, ttlSeconds: Int32?)
         case inputMediaPoll(flags: Int32, poll: Api.Poll, correctAnswers: [Buffer]?, solution: String?, solutionEntities: [Api.MessageEntity]?)
         case inputMediaStory(peer: Api.InputPeer, id: Int32)
-        case inputMediaUploadedDocument(flags: Int32, file: Api.InputFile, thumb: Api.InputFile?, mimeType: String, attributes: [Api.DocumentAttribute], stickers: [Api.InputDocument]?, ttlSeconds: Int32?)
+        case inputMediaTodo(todo: Api.TodoList)
+        case inputMediaUploadedDocument(flags: Int32, file: Api.InputFile, thumb: Api.InputFile?, mimeType: String, attributes: [Api.DocumentAttribute], stickers: [Api.InputDocument]?, videoCover: Api.InputPhoto?, videoTimestamp: Int32?, ttlSeconds: Int32?)
         case inputMediaUploadedPhoto(flags: Int32, file: Api.InputFile, stickers: [Api.InputDocument]?, ttlSeconds: Int32?)
         case inputMediaVenue(geoPoint: Api.InputGeoPoint, title: String, address: String, provider: String, venueId: String, venueType: String)
         case inputMediaWebPage(flags: Int32, url: String)
@@ -462,22 +599,26 @@ public extension Api {
                     }
                     serializeString(emoticon, buffer: buffer, boxed: false)
                     break
-                case .inputMediaDocument(let flags, let id, let ttlSeconds, let query):
+                case .inputMediaDocument(let flags, let id, let videoCover, let videoTimestamp, let ttlSeconds, let query):
                     if boxed {
-                        buffer.appendInt32(860303448)
+                        buffer.appendInt32(-1468646731)
                     }
                     serializeInt32(flags, buffer: buffer, boxed: false)
                     id.serialize(buffer, true)
+                    if Int(flags) & Int(1 << 3) != 0 {videoCover!.serialize(buffer, true)}
+                    if Int(flags) & Int(1 << 4) != 0 {serializeInt32(videoTimestamp!, buffer: buffer, boxed: false)}
                     if Int(flags) & Int(1 << 0) != 0 {serializeInt32(ttlSeconds!, buffer: buffer, boxed: false)}
                     if Int(flags) & Int(1 << 1) != 0 {serializeString(query!, buffer: buffer, boxed: false)}
                     break
-                case .inputMediaDocumentExternal(let flags, let url, let ttlSeconds):
+                case .inputMediaDocumentExternal(let flags, let url, let ttlSeconds, let videoCover, let videoTimestamp):
                     if boxed {
-                        buffer.appendInt32(-78455655)
+                        buffer.appendInt32(2006319353)
                     }
                     serializeInt32(flags, buffer: buffer, boxed: false)
                     serializeString(url, buffer: buffer, boxed: false)
                     if Int(flags) & Int(1 << 0) != 0 {serializeInt32(ttlSeconds!, buffer: buffer, boxed: false)}
+                    if Int(flags) & Int(1 << 2) != 0 {videoCover!.serialize(buffer, true)}
+                    if Int(flags) & Int(1 << 3) != 0 {serializeInt32(videoTimestamp!, buffer: buffer, boxed: false)}
                     break
                 case .inputMediaEmpty:
                     if boxed {
@@ -576,9 +717,15 @@ public extension Api {
                     peer.serialize(buffer, true)
                     serializeInt32(id, buffer: buffer, boxed: false)
                     break
-                case .inputMediaUploadedDocument(let flags, let file, let thumb, let mimeType, let attributes, let stickers, let ttlSeconds):
+                case .inputMediaTodo(let todo):
                     if boxed {
-                        buffer.appendInt32(1530447553)
+                        buffer.appendInt32(-1614454818)
+                    }
+                    todo.serialize(buffer, true)
+                    break
+                case .inputMediaUploadedDocument(let flags, let file, let thumb, let mimeType, let attributes, let stickers, let videoCover, let videoTimestamp, let ttlSeconds):
+                    if boxed {
+                        buffer.appendInt32(58495792)
                     }
                     serializeInt32(flags, buffer: buffer, boxed: false)
                     file.serialize(buffer, true)
@@ -594,6 +741,8 @@ public extension Api {
                     for item in stickers! {
                         item.serialize(buffer, true)
                     }}
+                    if Int(flags) & Int(1 << 6) != 0 {videoCover!.serialize(buffer, true)}
+                    if Int(flags) & Int(1 << 7) != 0 {serializeInt32(videoTimestamp!, buffer: buffer, boxed: false)}
                     if Int(flags) & Int(1 << 1) != 0 {serializeInt32(ttlSeconds!, buffer: buffer, boxed: false)}
                     break
                 case .inputMediaUploadedPhoto(let flags, let file, let stickers, let ttlSeconds):
@@ -636,10 +785,10 @@ public extension Api {
                 return ("inputMediaContact", [("phoneNumber", phoneNumber as Any), ("firstName", firstName as Any), ("lastName", lastName as Any), ("vcard", vcard as Any)])
                 case .inputMediaDice(let emoticon):
                 return ("inputMediaDice", [("emoticon", emoticon as Any)])
-                case .inputMediaDocument(let flags, let id, let ttlSeconds, let query):
-                return ("inputMediaDocument", [("flags", flags as Any), ("id", id as Any), ("ttlSeconds", ttlSeconds as Any), ("query", query as Any)])
-                case .inputMediaDocumentExternal(let flags, let url, let ttlSeconds):
-                return ("inputMediaDocumentExternal", [("flags", flags as Any), ("url", url as Any), ("ttlSeconds", ttlSeconds as Any)])
+                case .inputMediaDocument(let flags, let id, let videoCover, let videoTimestamp, let ttlSeconds, let query):
+                return ("inputMediaDocument", [("flags", flags as Any), ("id", id as Any), ("videoCover", videoCover as Any), ("videoTimestamp", videoTimestamp as Any), ("ttlSeconds", ttlSeconds as Any), ("query", query as Any)])
+                case .inputMediaDocumentExternal(let flags, let url, let ttlSeconds, let videoCover, let videoTimestamp):
+                return ("inputMediaDocumentExternal", [("flags", flags as Any), ("url", url as Any), ("ttlSeconds", ttlSeconds as Any), ("videoCover", videoCover as Any), ("videoTimestamp", videoTimestamp as Any)])
                 case .inputMediaEmpty:
                 return ("inputMediaEmpty", [])
                 case .inputMediaGame(let id):
@@ -660,8 +809,10 @@ public extension Api {
                 return ("inputMediaPoll", [("flags", flags as Any), ("poll", poll as Any), ("correctAnswers", correctAnswers as Any), ("solution", solution as Any), ("solutionEntities", solutionEntities as Any)])
                 case .inputMediaStory(let peer, let id):
                 return ("inputMediaStory", [("peer", peer as Any), ("id", id as Any)])
-                case .inputMediaUploadedDocument(let flags, let file, let thumb, let mimeType, let attributes, let stickers, let ttlSeconds):
-                return ("inputMediaUploadedDocument", [("flags", flags as Any), ("file", file as Any), ("thumb", thumb as Any), ("mimeType", mimeType as Any), ("attributes", attributes as Any), ("stickers", stickers as Any), ("ttlSeconds", ttlSeconds as Any)])
+                case .inputMediaTodo(let todo):
+                return ("inputMediaTodo", [("todo", todo as Any)])
+                case .inputMediaUploadedDocument(let flags, let file, let thumb, let mimeType, let attributes, let stickers, let videoCover, let videoTimestamp, let ttlSeconds):
+                return ("inputMediaUploadedDocument", [("flags", flags as Any), ("file", file as Any), ("thumb", thumb as Any), ("mimeType", mimeType as Any), ("attributes", attributes as Any), ("stickers", stickers as Any), ("videoCover", videoCover as Any), ("videoTimestamp", videoTimestamp as Any), ("ttlSeconds", ttlSeconds as Any)])
                 case .inputMediaUploadedPhoto(let flags, let file, let stickers, let ttlSeconds):
                 return ("inputMediaUploadedPhoto", [("flags", flags as Any), ("file", file as Any), ("stickers", stickers as Any), ("ttlSeconds", ttlSeconds as Any)])
                 case .inputMediaVenue(let geoPoint, let title, let address, let provider, let venueId, let venueType):
@@ -709,16 +860,24 @@ public extension Api {
             if let signature = reader.readInt32() {
                 _2 = Api.parse(reader, signature: signature) as? Api.InputDocument
             }
-            var _3: Int32?
-            if Int(_1!) & Int(1 << 0) != 0 {_3 = reader.readInt32() }
-            var _4: String?
-            if Int(_1!) & Int(1 << 1) != 0 {_4 = parseString(reader) }
+            var _3: Api.InputPhoto?
+            if Int(_1!) & Int(1 << 3) != 0 {if let signature = reader.readInt32() {
+                _3 = Api.parse(reader, signature: signature) as? Api.InputPhoto
+            } }
+            var _4: Int32?
+            if Int(_1!) & Int(1 << 4) != 0 {_4 = reader.readInt32() }
+            var _5: Int32?
+            if Int(_1!) & Int(1 << 0) != 0 {_5 = reader.readInt32() }
+            var _6: String?
+            if Int(_1!) & Int(1 << 1) != 0 {_6 = parseString(reader) }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
-            let _c3 = (Int(_1!) & Int(1 << 0) == 0) || _3 != nil
-            let _c4 = (Int(_1!) & Int(1 << 1) == 0) || _4 != nil
-            if _c1 && _c2 && _c3 && _c4 {
-                return Api.InputMedia.inputMediaDocument(flags: _1!, id: _2!, ttlSeconds: _3, query: _4)
+            let _c3 = (Int(_1!) & Int(1 << 3) == 0) || _3 != nil
+            let _c4 = (Int(_1!) & Int(1 << 4) == 0) || _4 != nil
+            let _c5 = (Int(_1!) & Int(1 << 0) == 0) || _5 != nil
+            let _c6 = (Int(_1!) & Int(1 << 1) == 0) || _6 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 {
+                return Api.InputMedia.inputMediaDocument(flags: _1!, id: _2!, videoCover: _3, videoTimestamp: _4, ttlSeconds: _5, query: _6)
             }
             else {
                 return nil
@@ -731,11 +890,19 @@ public extension Api {
             _2 = parseString(reader)
             var _3: Int32?
             if Int(_1!) & Int(1 << 0) != 0 {_3 = reader.readInt32() }
+            var _4: Api.InputPhoto?
+            if Int(_1!) & Int(1 << 2) != 0 {if let signature = reader.readInt32() {
+                _4 = Api.parse(reader, signature: signature) as? Api.InputPhoto
+            } }
+            var _5: Int32?
+            if Int(_1!) & Int(1 << 3) != 0 {_5 = reader.readInt32() }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
             let _c3 = (Int(_1!) & Int(1 << 0) == 0) || _3 != nil
-            if _c1 && _c2 && _c3 {
-                return Api.InputMedia.inputMediaDocumentExternal(flags: _1!, url: _2!, ttlSeconds: _3)
+            let _c4 = (Int(_1!) & Int(1 << 2) == 0) || _4 != nil
+            let _c5 = (Int(_1!) & Int(1 << 3) == 0) || _5 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 {
+                return Api.InputMedia.inputMediaDocumentExternal(flags: _1!, url: _2!, ttlSeconds: _3, videoCover: _4, videoTimestamp: _5)
             }
             else {
                 return nil
@@ -944,6 +1111,19 @@ public extension Api {
                 return nil
             }
         }
+        public static func parse_inputMediaTodo(_ reader: BufferReader) -> InputMedia? {
+            var _1: Api.TodoList?
+            if let signature = reader.readInt32() {
+                _1 = Api.parse(reader, signature: signature) as? Api.TodoList
+            }
+            let _c1 = _1 != nil
+            if _c1 {
+                return Api.InputMedia.inputMediaTodo(todo: _1!)
+            }
+            else {
+                return nil
+            }
+        }
         public static func parse_inputMediaUploadedDocument(_ reader: BufferReader) -> InputMedia? {
             var _1: Int32?
             _1 = reader.readInt32()
@@ -965,17 +1145,25 @@ public extension Api {
             if Int(_1!) & Int(1 << 0) != 0 {if let _ = reader.readInt32() {
                 _6 = Api.parseVector(reader, elementSignature: 0, elementType: Api.InputDocument.self)
             } }
-            var _7: Int32?
-            if Int(_1!) & Int(1 << 1) != 0 {_7 = reader.readInt32() }
+            var _7: Api.InputPhoto?
+            if Int(_1!) & Int(1 << 6) != 0 {if let signature = reader.readInt32() {
+                _7 = Api.parse(reader, signature: signature) as? Api.InputPhoto
+            } }
+            var _8: Int32?
+            if Int(_1!) & Int(1 << 7) != 0 {_8 = reader.readInt32() }
+            var _9: Int32?
+            if Int(_1!) & Int(1 << 1) != 0 {_9 = reader.readInt32() }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
             let _c3 = (Int(_1!) & Int(1 << 2) == 0) || _3 != nil
             let _c4 = _4 != nil
             let _c5 = _5 != nil
             let _c6 = (Int(_1!) & Int(1 << 0) == 0) || _6 != nil
-            let _c7 = (Int(_1!) & Int(1 << 1) == 0) || _7 != nil
-            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 {
-                return Api.InputMedia.inputMediaUploadedDocument(flags: _1!, file: _2!, thumb: _3, mimeType: _4!, attributes: _5!, stickers: _6, ttlSeconds: _7)
+            let _c7 = (Int(_1!) & Int(1 << 6) == 0) || _7 != nil
+            let _c8 = (Int(_1!) & Int(1 << 7) == 0) || _8 != nil
+            let _c9 = (Int(_1!) & Int(1 << 1) == 0) || _9 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 && _c9 {
+                return Api.InputMedia.inputMediaUploadedDocument(flags: _1!, file: _2!, thumb: _3, mimeType: _4!, attributes: _5!, stickers: _6, videoCover: _7, videoTimestamp: _8, ttlSeconds: _9)
             }
             else {
                 return nil

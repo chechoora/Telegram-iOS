@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import Display
+import SSignalKit
 import SwiftSignalKit
 import Postbox
 import TelegramCore
@@ -33,6 +34,7 @@ import TextFormat
 import AvatarEditorScreen
 import SendInviteLinkScreen
 import OldChannelsController
+import AVFoundation
 
 private struct CreateGroupArguments {
     let context: AccountContext
@@ -675,7 +677,7 @@ public func createGroupControllerImpl(context: AccountContext, peerIds: [PeerId]
                     case .generic:
                         createSignal = context.engine.peers.createGroup(title: title, peerIds: peerIds, ttlPeriod: ttlPeriod)
                     case .supergroup:
-                        createSignal = context.engine.peers.createSupergroup(title: title, description: nil)
+                        createSignal = context.engine.peers.createSupergroup(title: title, description: nil, ttlPeriod: ttlPeriod)
                         |> map { peerId -> CreateGroupResult? in
                             return CreateGroupResult(peerId: peerId, result: TelegramInvitePeersResult(forbiddenPeers: []))
                         }
@@ -730,7 +732,7 @@ public func createGroupControllerImpl(context: AccountContext, peerIds: [PeerId]
                         }
                         
                         let createGroupSignal: (Bool) -> Signal<CreateGroupResult?, CreateGroupError> = { isForum in
-                            return context.engine.peers.createSupergroup(title: title, description: nil, isForum: isForum)
+                            return context.engine.peers.createSupergroup(title: title, description: nil, isForum: isForum, ttlPeriod: ttlPeriod)
                             |> map { peerId -> CreateGroupResult? in
                                 return CreateGroupResult(peerId: peerId, result: TelegramInvitePeersResult(forbiddenPeers: []))
                             }
@@ -767,7 +769,7 @@ public func createGroupControllerImpl(context: AccountContext, peerIds: [PeerId]
                         } else if isForum || group.userAdminRights != nil {
                             createSignal = createGroupSignal(isForum)
                         } else {
-                            createSignal = context.engine.peers.createGroup(title: title, peerIds: peerIds, ttlPeriod: nil)
+                            createSignal = context.engine.peers.createGroup(title: title, peerIds: peerIds, ttlPeriod: ttlPeriod)
                         }
 
                         if group.userAdminRights?.rights.contains(.canBeAnonymous) == true {
@@ -850,7 +852,7 @@ public func createGroupControllerImpl(context: AccountContext, peerIds: [PeerId]
                                         |> deliverOnMainQueue).start(next: { peer in
                                             if let peer, let exportedInvitation, let link = exportedInvitation.link {
                                                 
-                                                let inviteScreen = SendInviteLinkScreen(context: context, peer: peer, link: link, peers: result.result.forbiddenPeers)
+                                                let inviteScreen = SendInviteLinkScreen(context: context, subject: .chat(peer: peer, link: link), peers: result.result.forbiddenPeers)
                                                 controller?.push(inviteScreen)
                                             }
                                         })
@@ -1061,15 +1063,15 @@ public func createGroupControllerImpl(context: AccountContext, peerIds: [PeerId]
                 }))
                 presentControllerImpl?(controller, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
             }
-            mixin.requestAvatarEditor = { imageCompletion, videoCompletion in
-                guard let imageCompletion, let videoCompletion else {
-                    return
-                }
-                let controller = AvatarEditorScreen(context: context, inputData: keyboardInputData.get(), peerType: .group, markup: nil)
-                controller.imageCompletion = imageCompletion
-                controller.videoCompletion = videoCompletion
-                pushImpl?(controller)
-            }
+//            mixin.requestAvatarEditor = { imageCompletion, videoCompletion in
+//                guard let imageCompletion, let videoCompletion else {
+//                    return
+//                }
+//                let controller = AvatarEditorScreen(context: context, inputData: keyboardInputData.get(), peerType: .group, markup: nil)
+//                controller.imageCompletion = imageCompletion
+//                controller.videoCompletion = videoCompletion
+//                pushImpl?(controller)
+//            }
             mixin.didFinishWithImage = { image in
                 if let image = image {
                     completedGroupPhotoImpl(image)

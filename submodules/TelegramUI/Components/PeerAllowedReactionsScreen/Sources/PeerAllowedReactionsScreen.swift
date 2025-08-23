@@ -23,6 +23,7 @@ import AudioToolbox
 import PremiumLockButtonSubtitleComponent
 import ListSectionComponent
 import ListItemSliderSelectorComponent
+import ListSwitchItemComponent
 
 final class PeerAllowedReactionsScreenComponent: Component {
     typealias EnvironmentType = ViewControllerComponentContainer.Environment
@@ -542,7 +543,7 @@ final class PeerAllowedReactionsScreenComponent: Component {
                                             }
                                             
                                             let text = presentationData.strings.ChannelReactions_ToastLevelBoostRequiredTemplate(presentationData.strings.ChannelReactions_ToastLevelBoostRequiredTemplateLevel(Int32(nextCustomReactionCount)), presentationData.strings.ChannelReactions_ToastLevelBoostRequiredTemplateEmojiCount(Int32(nextCustomReactionCount))).string
-                                            let undoController = UndoOverlayController(presentationData: presentationData, content: .customEmoji(context: component.context, file: itemFile, loop: false, title: nil, text: text, undoText: nil, customAction: nil), elevatedLayout: false, position: .bottom, animateInAsReplacement: animateAsReplacement, action: { _ in return false })
+                                            let undoController = UndoOverlayController(presentationData: presentationData, content: .customEmoji(context: component.context, file: itemFile._parse(), loop: false, title: nil, text: text, undoText: nil, customAction: nil), elevatedLayout: false, position: .bottom, animateInAsReplacement: animateAsReplacement, action: { _ in return false })
                                             self.currentUndoController = undoController
                                             self.environment?.controller()?.present(undoController, in: .current)
                                         }
@@ -698,7 +699,7 @@ final class PeerAllowedReactionsScreenComponent: Component {
                                                     localPacksSignal
                                                 )
                                                 |> map { view, availableReactions, hasPremium, foundPacks, foundEmoji, foundLocalPacks -> [EmojiPagerContentComponent.ItemGroup] in
-                                                    var result: [(String, TelegramMediaFile?, String)] = []
+                                                    var result: [(String, TelegramMediaFile.Accessor?, String)] = []
                                                     
                                                     var allEmoticons: [String: String] = [:]
                                                     for keyword in keywords {
@@ -712,9 +713,9 @@ final class PeerAllowedReactionsScreenComponent: Component {
                                                             switch attribute {
                                                             case let .CustomEmoji(_, _, alt, _):
                                                                 if !alt.isEmpty, let keyword = allEmoticons[alt] {
-                                                                    result.append((alt, itemFile, keyword))
+                                                                    result.append((alt, TelegramMediaFile.Accessor(itemFile), keyword))
                                                                 } else if alt == query {
-                                                                    result.append((alt, itemFile, alt))
+                                                                    result.append((alt, TelegramMediaFile.Accessor(itemFile), alt))
                                                                 }
                                                             default:
                                                                 break
@@ -726,18 +727,13 @@ final class PeerAllowedReactionsScreenComponent: Component {
                                                         guard let item = entry.item as? StickerPackItem else {
                                                             continue
                                                         }
-                                                        for attribute in item.file.attributes {
-                                                            switch attribute {
-                                                            case let .CustomEmoji(_, _, alt, _):
-                                                                if !item.file.isPremiumEmoji {
-                                                                    if !alt.isEmpty, let keyword = allEmoticons[alt] {
-                                                                        result.append((alt, item.file, keyword))
-                                                                    } else if alt == query {
-                                                                        result.append((alt, item.file, alt))
-                                                                    }
+                                                        if !item.file.isPremiumEmoji {
+                                                            if let alt = item.file.customEmojiAlt {
+                                                                if !alt.isEmpty, let keyword = allEmoticons[alt] {
+                                                                    result.append((alt, item.file, keyword))
+                                                                } else if alt == query {
+                                                                    result.append((alt, item.file, alt))
                                                                 }
-                                                            default:
-                                                                break
                                                             }
                                                         }
                                                     }
@@ -877,11 +873,12 @@ final class PeerAllowedReactionsScreenComponent: Component {
                                                 continue
                                             }
                                             existingIds.insert(itemFile.fileId)
-                                            let animationData = EntityKeyboardAnimationData(file: itemFile)
+                                            let animationData = EntityKeyboardAnimationData(file: TelegramMediaFile.Accessor(itemFile))
                                             let item = EmojiPagerContentComponent.Item(
                                                 animationData: animationData,
                                                 content: .animation(animationData),
-                                                itemFile: itemFile, subgroupId: nil,
+                                                itemFile: TelegramMediaFile.Accessor(itemFile),
+                                                subgroupId: nil,
                                                 icon: .none,
                                                 tintMode: animationData.isTemplate ? .primary : .none
                                             )
@@ -1669,8 +1666,8 @@ final class PeerAllowedReactionsScreenComponent: Component {
                 self.scrollView.contentSize = contentSize
             }
             let scrollInsets = UIEdgeInsets(top: environment.navigationHeight, left: 0.0, bottom: environment.safeInsets.bottom, right: 0.0)
-            if self.scrollView.scrollIndicatorInsets != scrollInsets {
-                self.scrollView.scrollIndicatorInsets = scrollInsets
+            if self.scrollView.verticalScrollIndicatorInsets != scrollInsets {
+                self.scrollView.verticalScrollIndicatorInsets = scrollInsets
             }
             
             if self.recenterOnCaret {
@@ -1855,7 +1852,7 @@ public class PeerAllowedReactionsScreen: ViewControllerComponentContainer {
                     } else {
                         if case let .custom(fileId) = reaction {
                             if let file = files[fileId] {
-                                result.append(EmojiComponentReactionItem(reaction: reaction, file: file))
+                                result.append(EmojiComponentReactionItem(reaction: reaction, file: TelegramMediaFile.Accessor(file)))
                             }
                         }
                     }

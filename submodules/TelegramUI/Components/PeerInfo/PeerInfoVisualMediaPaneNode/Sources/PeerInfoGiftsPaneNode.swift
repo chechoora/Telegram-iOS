@@ -1,14 +1,17 @@
 import AsyncDisplayKit
+import UIKit
 import Display
 import ComponentFlow
 import TelegramCore
 import SwiftSignalKit
 import Postbox
 import TelegramPresentationData
+import PresentationDataUtils
 import AccountContext
 import ContextUI
 import PhotoResources
 import TelegramUIPreferences
+import TelegramStringFormatting
 import ItemListPeerItem
 import ItemListPeerActionItem
 import MergeLists
@@ -21,32 +24,92 @@ import PeerInfoPaneNode
 import GiftItemComponent
 import PlainButtonComponent
 import GiftViewScreen
-import SolidRoundedButtonNode
+import ButtonComponent
+import UndoUI
+import CheckComponent
+import LottieComponent
+import ContextUI
+import TabSelectorComponent
+import BundleIconComponent
+import EmojiTextAttachmentView
+import TextFormat
+import PromptUI
 
 public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScrollViewDelegate {
+    public enum GiftCollection: Equatable {
+        case all
+        case collection(Int32)
+        case create
+        
+        init(rawValue: Int32) {
+            switch rawValue {
+            case 0:
+                self = .all
+            case -1:
+                self = .create
+            default:
+                self = .collection(rawValue)
+            }
+        }
+        
+        public var rawValue: Int32 {
+            switch self {
+            case .all:
+                return 0
+            case .create:
+                return -1
+            case let .collection(id):
+                return id
+            }
+        }
+    }
+    
     private let context: AccountContext
     private let peerId: PeerId
+    private let profileGiftsCollections: ProfileGiftsCollectionsContext
     private let profileGifts: ProfileGiftsContext
+    private let canManage: Bool
+    private let canGift: Bool
+    private var peer: EnginePeer?
+    private let initialGiftCollectionId: Int64?
     
-    private var dataDisposable: Disposable?
+    private var resultsAreEmpty = false
     
     private let chatControllerInteraction: ChatControllerInteraction
-    private let openPeerContextAction: (Bool, Peer, ASDisplayNode, ContextGesture?) -> Void
     
-    public weak var parentController: ViewController?
+    public weak var parentController: ViewController? {
+        didSet {
+            self.giftsListView.parentController = self.parentController
+        }
+    }
     
     private let backgroundNode: ASDisplayNode
     private let scrollNode: ASScrollNode
+    private var giftsListView: GiftsListView
     
-    private var unlockBackground: NavigationBackgroundNode?
-    private var unlockSeparator: ASDisplayNode?
-    private var unlockText: ComponentView<Empty>?
-    private var unlockButton: SolidRoundedButtonNode?
+    private let tabSelector = ComponentView<Empty>()
+    public private(set) var currentCollection: GiftCollection = .all
     
-    private var currentParams: (size: CGSize, sideInset: CGFloat, bottomInset: CGFloat, visibleHeight: CGFloat, isScrollingLockedAtTop: Bool, presentationData: PresentationData)?
+    private var footerText: ComponentView<Empty>?
+    private var panelBackground: NavigationBackgroundNode?
+    private var panelSeparator: ASDisplayNode?
+    private var panelButton: ComponentView<Empty>?
+    private var panelCheck: ComponentView<Empty>?
+    
+    private let emptyResultsClippingView = UIView()
+    private let emptyResultsAnimation = ComponentView<Empty>()
+    private let emptyResultsTitle = ComponentView<Empty>()
+    private let emptyResultsAction = ComponentView<Empty>()
+    
+    private var currentParams: (size: CGSize, topInset: CGFloat, sideInset: CGFloat, bottomInset: CGFloat, deviceMetrics: DeviceMetrics, visibleHeight: CGFloat, isScrollingLockedAtTop: Bool, expandProgress: CGFloat, navigationHeight: CGFloat, presentationData: PresentationData)?
     
     private var theme: PresentationTheme?
     private let presentationDataPromise = Promise<PresentationData>()
+    
+    private var collectionsDisposable: Disposable?
+    private var collections: [StarGiftCollection]?
+    private var reorderedCollectionIds: [Int32]?
+    private var isReordering = false
     
     private let ready = Promise<Bool>()
     private var didSetReady: Bool = false
@@ -63,54 +126,228 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
     public var tabBarOffset: CGFloat {
         return 0.0
     }
-            
-    private var starsProducts: [ProfileGiftsContext.State.StarGift]?
     
-    private var starsItems: [AnyHashable: ComponentView<Empty>] = [:]
+    public var giftsContext: ProfileGiftsContext {
+        return self.giftsListView.profileGifts
+    }
     
-    public init(context: AccountContext, peerId: PeerId, chatControllerInteraction: ChatControllerInteraction, openPeerContextAction: @escaping (Bool, Peer, ASDisplayNode, ContextGesture?) -> Void, profileGifts: ProfileGiftsContext) {
+    public var openShareLink: ((String) -> Void)?
+    
+    private let collectionsMaxCount: Int
+    
+    public init(context: AccountContext, peerId: PeerId, chatControllerInteraction: ChatControllerInteraction, profileGiftsCollections: ProfileGiftsCollectionsContext, profileGifts: ProfileGiftsContext, canManage: Bool, canGift: Bool, initialGiftCollectionId: Int64?) {
         self.context = context
         self.peerId = peerId
         self.chatControllerInteraction = chatControllerInteraction
-        self.openPeerContextAction = openPeerContextAction
+        self.profileGiftsCollections = profileGiftsCollections
         self.profileGifts = profileGifts
+        self.canManage = canManage
+        self.canGift = canGift
+        self.initialGiftCollectionId = initialGiftCollectionId
+        
+        if let value = context.currentAppConfiguration.with({ $0 }).data?["stargifts_collections_limit"] as? Double {
+            self.collectionsMaxCount = Int(value)
+        } else {
+            self.collectionsMaxCount = 6
+        }
         
         self.backgroundNode = ASDisplayNode()
         self.scrollNode = ASScrollNode()
-        
+        self.giftsListView = GiftsListView(context: context, peerId: peerId, profileGifts: profileGifts, giftsCollections: profileGiftsCollections, canSelect: false)
+                
         super.init()
-        
+                
         self.addSubnode(self.backgroundNode)
         self.addSubnode(self.scrollNode)
-                        
-        self.dataDisposable = (profileGifts.state
-        |> deliverOnMainQueue).startStrict(next: { [weak self] state in
+        
+        self.statusPromise.set(self.giftsListView.status)
+        self.ready.set(self.giftsListView.isReady)
+        
+        self.giftsListView.onContentUpdated = { [weak self] in
             guard let self else {
                 return
             }
-            let isFirstTime = starsProducts == nil
-            let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
-            self.statusPromise.set(.single(PeerInfoStatusData(text: presentationData.strings.SharedMedia_GiftCount(state.count ?? 0), isActivity: true, key: .gifts)))
-            self.starsProducts = state.gifts
-            
-            if !self.didSetReady {
-                self.didSetReady = true
-                self.ready.set(.single(true))
+            if let params = self.currentParams {
+                self.update(size: params.size, topInset: params.topInset, sideInset: params.sideInset, bottomInset: params.bottomInset, deviceMetrics: params.deviceMetrics, visibleHeight: params.visibleHeight, isScrollingLockedAtTop: params.isScrollingLockedAtTop, expandProgress: params.expandProgress, navigationHeight: params.navigationHeight, presentationData: params.presentationData, synchronous: true, transition: .immediate)
             }
-            
-            self.updateScrolling(transition: isFirstTime ? .immediate : .easeInOut(duration: 0.25))
+        }
+        self.giftsListView.contextAction = { [weak self] gift, view, gesture in
+            guard let self else {
+                return
+            }
+            self.contextAction(gift: gift, view: view, gesture: gesture)
+        }
+        self.giftsListView.displayUnpinScreen = { [weak self] gift, completion in
+            guard let self else {
+                return
+            }
+            self.displayUnpinScreen(gift: gift, completion: completion)
+        }
+        
+        self.collectionsDisposable = (profileGiftsCollections.state
+        |> deliverOnMainQueue).start(next: { [weak self] state in
+            guard let self else {
+                return
+            }
+            self.collections = state.collections
+            self.updateScrolling(transition: .easeInOut(duration: 0.2))
+        })
+        
+        if let initialGiftCollectionId {
+            self.setCurrentCollection(collection: .collection(Int32(initialGiftCollectionId)))
+        }
+        
+        let _ = (context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: peerId))
+        |> deliverOnMainQueue).start(next: { [weak self] peer in
+            guard let self else {
+                return
+            }
+            self.peer = peer
+            self.updateScrolling(transition: .immediate)
         })
     }
     
     deinit {
-        self.dataDisposable?.dispose()
+        self.collectionsDisposable?.dispose()
     }
-    
+        
     public override func didLoad() {
         super.didLoad()
         
         self.scrollNode.view.contentInsetAdjustmentBehavior = .never
         self.scrollNode.view.delegate = self
+        
+        if let tabSelectorView = self.tabSelector.view {
+            self.scrollNode.view.insertSubview(self.giftsListView, aboveSubview: tabSelectorView)
+        } else {
+            self.scrollNode.view.insertSubview(self.giftsListView, at: 0)
+        }
+    }
+    
+    private func item(at point: CGPoint) -> (AnyHashable, ComponentView<Empty>)? {
+        return self.giftsListView.item(at: self.giftsListView.convert(point, from: self.view))
+    }
+    
+    public func createCollection(gifts: [ProfileGiftsContext.State.StarGift] = []) {
+        guard let params = self.currentParams else {
+            return
+        }
+        if let collections = self.collections, collections.count >= self.collectionsMaxCount {
+            let alertController = textAlertController(context: self.context, title: params.presentationData.strings.PeerInfo_Gifts_CollectionLimitReached_Title, text: params.presentationData.strings.PeerInfo_Gifts_CollectionLimitReached_Text, actions: [TextAlertAction(type: .defaultAction, title: params.presentationData.strings.Common_OK, action: {})])
+            self.parentController?.present(alertController, in: .window(.root))
+            return
+        }
+        
+        let promptController = promptController(sharedContext: self.context.sharedContext, updatedPresentationData: nil, text: params.presentationData.strings.PeerInfo_Gifts_CreateCollection_Title, titleFont: .bold, subtitle: params.presentationData.strings.PeerInfo_Gifts_CreateCollection_Text, value: "", placeholder: params.presentationData.strings.PeerInfo_Gifts_CreateCollection_Placeholder, characterLimit: 12, displayCharacterLimit: true, apply: { [weak self] value in
+            guard let self, let value else {
+                return
+            }
+            let _ = self.profileGiftsCollections.createCollection(title: value, starGifts: gifts).start(next: { [weak self] collection in
+                guard let self else {
+                    return
+                }
+                if let collection {
+                    self.setCurrentCollection(collection: .collection(collection.id))
+                    
+                    if let tabSelectorView = self.tabSelector.view as? TabSelectorComponent.View {
+                        tabSelectorView.scrollToEnd()
+                    }
+                }
+            })
+        })
+        self.parentController?.present(promptController, in: .window(.root))
+    }
+    
+    public func deleteCollection(id: Int32) {
+        guard let params = self.currentParams else {
+            return
+        }
+        let actionSheet = ActionSheetController(presentationData: params.presentationData)
+        actionSheet.setItemGroups([
+            ActionSheetItemGroup(items: [
+                ActionSheetTextItem(title: params.presentationData.strings.PeerInfo_Gifts_RemoveCollectionConfirmation),
+                ActionSheetButtonItem(title: params.presentationData.strings.PeerInfo_Gifts_RemoveCollectionAction, color: .destructive, action: { [weak self, weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                    
+                    self?.setCurrentCollection(collection: .all)
+                    let _ = self?.profileGiftsCollections.deleteCollection(id: id).start()
+                    
+                    if let tabSelectorView = self?.tabSelector.view as? TabSelectorComponent.View {
+                        tabSelectorView.scrollToStart()
+                    }
+                })
+            ]),
+            ActionSheetItemGroup(items: [
+                ActionSheetButtonItem(title: params.presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                })
+            ])
+        ])
+        self.parentController?.present(actionSheet, in: .window(.root))
+    }
+    
+    public func addGiftsToCollection(id: Int32) {
+        var collectionGiftsMaxCount: Int32 = 1000
+        if let value = self.context.currentAppConfiguration.with({ $0 }).data?["stargifts_collection_gifts_limit"] as? Double {
+            collectionGiftsMaxCount = Int32(value)
+        }
+        var remainingCount = collectionGiftsMaxCount
+        if let currentCount = self.giftsListView.profileGifts.currentState?.count {
+            remainingCount = max(0, collectionGiftsMaxCount - currentCount)
+        }
+        let screen = AddGiftsScreen(context: self.context, peerId: self.peerId, collectionId: id, remainingCount: remainingCount, completion: { [weak self] gifts in
+            guard let self else {
+                return
+            }
+            let _ = self.profileGiftsCollections.addGifts(id: id, gifts: gifts).start()
+        })
+        self.parentController?.push(screen)
+    }
+    
+    public func renameCollection(id: Int32) {
+        guard let params = self.currentParams, let collection = self.collections?.first(where: { $0.id == id }) else {
+            return
+        }
+        
+        let promptController = promptController(sharedContext: self.context.sharedContext, updatedPresentationData: nil, text: params.presentationData.strings.PeerInfo_Gifts_RenameCollection_Title, titleFont: .bold, value: collection.title, placeholder: params.presentationData.strings.PeerInfo_Gifts_CreateCollection_Placeholder, characterLimit: 12, displayCharacterLimit: true, apply: { [weak self] value in
+            guard let self, let value else {
+                return
+            }
+            let _ = self.profileGiftsCollections.renameCollection(id: id, title: value).start()
+        })
+        self.parentController?.present(promptController, in: .window(.root))
+    }
+    
+    public func beginReordering() {
+        self.giftsListView.beginReordering()
+    }
+    
+    public func endReordering() {
+        self.giftsListView.endReordering()
+    }
+    
+    public func updateIsReordering(isReordering: Bool, animated: Bool) {
+        if self.isReordering != isReordering {
+            self.isReordering = isReordering
+            
+            if let collections = self.collections {
+                if isReordering {
+                    var collectionIds: [Int32] = []
+                    for collection in collections {
+                        collectionIds.append(collection.id)
+                    }
+                    self.reorderedCollectionIds = collectionIds
+                } else if let reorderedCollectionIds = self.reorderedCollectionIds {
+                    let _ = self.profileGiftsCollections.reorderCollections(order: reorderedCollectionIds).start()
+                    Queue.mainQueue().after(1.0, {
+                        self.reorderedCollectionIds = nil
+                    })
+                }
+            }
+         
+            self.giftsListView.updateIsReordering(isReordering: isReordering, animated: animated)
+            self.updateScrolling(transition: .easeInOut(duration: 0.2))
+        }
     }
     
     public func ensureMessageIsVisible(id: MessageId) {
@@ -122,286 +359,572 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
     }
     
     public func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        self.updateScrolling(transition: .immediate)
+        self.updateScrolling(interactive: true, transition: .immediate)
     }
     
-    func updateScrolling(transition: ComponentTransition) {
-        if let starsProducts = self.starsProducts, let params = self.currentParams {
-            let optionSpacing: CGFloat = 10.0
-            let sideInset = params.sideInset + 16.0
-            
-            let itemsInRow = max(1, min(starsProducts.count, 3))
-            let optionWidth = (params.size.width - sideInset * 2.0 - optionSpacing * CGFloat(itemsInRow - 1)) / CGFloat(itemsInRow)
-            
-            let starsOptionSize = CGSize(width: optionWidth, height: optionWidth)
-            
-            let visibleBounds = self.scrollNode.bounds.insetBy(dx: 0.0, dy: -10.0)
-            
-            let topInset: CGFloat = 60.0
-            
-            var validIds: [AnyHashable] = []
-            var itemFrame = CGRect(origin: CGPoint(x: sideInset, y: topInset), size: starsOptionSize)
-            
-            var index: Int32 = 0
-            for product in starsProducts {
-                var isVisible = false
-                if visibleBounds.intersects(itemFrame) {
-                    isVisible = true
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        cancelContextGestures(view: scrollView)
+    }
+    
+    private func displayUnpinScreen(gift: ProfileGiftsContext.State.StarGift, completion: (() -> Void)? = nil) {
+        guard let pinnedGifts = self.profileGifts.currentState?.gifts.filter({ $0.pinnedToTop }), let presentationData = self.currentParams?.presentationData else {
+            return
+        }
+        let controller = GiftUnpinScreen(
+            context: self.context,
+            gift: gift,
+            pinnedGifts: pinnedGifts,
+            completion: { [weak self] unpinnedReference in
+                guard let self else {
+                    return
+                }
+                completion?()
+                
+                var replacingTitle = ""
+                for gift in pinnedGifts {
+                    if gift.reference == unpinnedReference, case let .unique(uniqueGift) = gift.gift {
+                        replacingTitle = "\(uniqueGift.title) #\(presentationStringsFormattedNumber(uniqueGift.number, presentationData.dateTimeFormat.groupingSeparator))"
+                    }
                 }
                 
-                if isVisible {
-                    let info: String
-                    switch product.gift {
-                    case let .generic(gift):
-                        info = "g_\(gift.id)"
-                    case let .unique(gift):
-                        info = "u_\(gift.id)"
+                var updatedPinnedGifts = self.giftsListView.pinnedReferences
+                if let index = updatedPinnedGifts.firstIndex(of: unpinnedReference), let reference = gift.reference {
+                    updatedPinnedGifts[index] = reference
+                }
+                self.profileGifts.updatePinnedToTopStarGifts(references: updatedPinnedGifts)
+                
+                var title = ""
+                if case let .unique(uniqueGift) = gift.gift {
+                    title = "\(uniqueGift.title) #\(presentationStringsFormattedNumber(uniqueGift.number, presentationData.dateTimeFormat.groupingSeparator))"
+                }
+                                                       
+                let _ = self.scrollToTop()
+                Queue.mainQueue().after(0.35) {
+                    let toastTitle = presentationData.strings.PeerInfo_Gifts_ToastPinned_TitleNew(title).string
+                    let toastText = presentationData.strings.PeerInfo_Gifts_ToastPinned_ReplacingText(replacingTitle).string
+                    self.parentController?.present(UndoOverlayController(presentationData: presentationData, content: .universal(animation: "anim_toastpin", scale: 0.06, colors: [:], title: toastTitle, text: toastText, customUndoText: nil, timeout: 5), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
+                }
+            }
+        )
+        self.parentController?.push(controller)
+    }
+    
+    func setCurrentCollection(collection: GiftCollection) {
+        guard self.currentCollection != collection else {
+            return
+        }
+        var animateRight = false
+        if case let .collection(currentId) = self.currentCollection {
+            if case let .collection(nextId) = collection {
+                if let currentIndex = self.collections?.firstIndex(where: { $0.id == currentId }), let nextIndex = self.collections?.firstIndex(where: { $0.id == nextId }) {
+                    animateRight = nextIndex > currentIndex
+                }
+            }
+        } else {
+            animateRight = true
+        }
+
+        let previousGiftsListView = self.giftsListView
+        
+        let profileGifts: ProfileGiftsContext
+        switch collection {
+        case let .collection(id):
+            profileGifts = self.profileGiftsCollections.giftsContextForCollection(id: id)
+        default:
+            profileGifts = self.profileGifts
+        }
+        if case .ready = profileGifts.currentState?.dataState {
+            profileGifts.reload()
+        }
+
+        self.giftsListView = GiftsListView(context: self.context, peerId: self.peerId, profileGifts: profileGifts, giftsCollections: self.profileGiftsCollections, canSelect: false)
+        self.giftsListView.addToCollection = { [weak self] in
+            guard let self else {
+                return
+            }
+            if case let .collection(id) = collection {
+                self.addGiftsToCollection(id: id)
+            }
+        }
+        self.giftsListView.onContentUpdated = { [weak self] in
+            guard let self else {
+                return
+            }
+            if case .collection = collection {
+                self.resultsAreEmpty = self.giftsListView.resultsAreEmpty
+            } else {
+                self.resultsAreEmpty = false
+            }
+            if let params = self.currentParams {
+                self.update(size: params.size, topInset: params.topInset, sideInset: params.sideInset, bottomInset: params.bottomInset, deviceMetrics: params.deviceMetrics, visibleHeight: params.visibleHeight, isScrollingLockedAtTop: params.isScrollingLockedAtTop, expandProgress: params.expandProgress, navigationHeight: params.navigationHeight, presentationData: params.presentationData, synchronous: true, transition: .immediate)
+            }
+        }
+        self.giftsListView.displayUnpinScreen = { [weak self] gift, completion in
+            guard let self else {
+                return
+            }
+            self.displayUnpinScreen(gift: gift, completion: completion)
+        }
+        self.giftsListView.contextAction = { [weak self] gift, view, gesture in
+            guard let self else {
+                return
+            }
+            self.contextAction(gift: gift, view: view, gesture: gesture)
+        }
+        self.giftsListView.parentController = self.parentController
+        self.giftsListView.frame = previousGiftsListView.frame
+                                        
+        self.scrollNode.view.insertSubview(self.giftsListView, aboveSubview: previousGiftsListView)
+        
+        let multiplier = animateRight ? 1.0 : -1.0
+        
+        previousGiftsListView.layer.animatePosition(from: .zero, to: CGPoint(x: previousGiftsListView.frame.width * multiplier * -1.0, y: 0.0), duration: 0.4, timingFunction: kCAMediaTimingFunctionSpring, removeOnCompletion: false, additive: true, completion: { _ in
+            previousGiftsListView.removeFromSuperview()
+        })
+        self.giftsListView.layer.animatePosition(from: CGPoint(x: previousGiftsListView.frame.width * multiplier, y: 0.0), to: .zero, duration: 0.4, timingFunction: kCAMediaTimingFunctionSpring, additive: true)
+        
+        self.currentCollection = collection
+        self.updateScrolling(transition: .spring(duration: 0.25))
+        
+        if let params = self.currentParams {
+            let visibleBounds = self.scrollNode.bounds.insetBy(dx: 0.0, dy: -10.0)
+            let _ = self.giftsListView.update(size: params.size, sideInset: params.sideInset, bottomInset: params.bottomInset, deviceMetrics: params.deviceMetrics, visibleHeight: params.visibleHeight, isScrollingLockedAtTop: params.isScrollingLockedAtTop, expandProgress: params.expandProgress, presentationData: params.presentationData, synchronous: true, visibleBounds: visibleBounds, transition: .immediate)
+        }
+    }
+    
+    func openCollectionContextMenu(id: Int32, sourceNode: ASDisplayNode, gesture: ContextGesture?) {
+        guard let params = self.currentParams, let sourceNode = sourceNode as? ContextExtractedContentContainingNode else {
+            return
+        }
+        
+        var canEditCollections = false
+        if self.peerId == self.context.account.peerId || self.canManage {
+            canEditCollections = true
+        }
+        
+        var items: [ContextMenuItem] = []
+        
+        if canEditCollections {
+            items.append(.action(ContextMenuActionItem(text: params.presentationData.strings.PeerInfo_Gifts_AddGifts, icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Peer Info/Gifts/AddGift"), color: theme.actionSheet.primaryTextColor)
+            }, action: { [weak self] _, f in
+                guard let self else {
+                    return
+                }
+                f(.default)
+                
+                self.setCurrentCollection(collection: .collection(id))
+                self.addGiftsToCollection(id: id)
+            })))
+            
+            items.append(.action(ContextMenuActionItem(text: params.presentationData.strings.PeerInfo_Gifts_RenameCollection, icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Edit"), color: theme.actionSheet.primaryTextColor)
+            }, action: { [weak self] _, f in
+                guard let self else {
+                    return
+                }
+                f(.default)
+                
+                Queue.mainQueue().after(0.15) {
+                    self.renameCollection(id: id)
+                }
+            })))
+        }
+
+        if let peer = self.peer, let addressName = peer.addressName, !addressName.isEmpty {
+            items.append(.action(ContextMenuActionItem(text: params.presentationData.strings.PeerInfo_Gifts_ShareCollection, icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Forward"), color: theme.actionSheet.primaryTextColor)
+            }, action: { [weak self] _, f in
+                guard let self else {
+                    return
+                }
+                f(.default)
+                
+                self.openShareLink?("https://t.me/\(addressName)/c/\(id)")
+            })))
+        }
+        
+        if canEditCollections {
+            items.append(.action(ContextMenuActionItem(text: params.presentationData.strings.PeerInfo_Gifts_Reorder, icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/ReorderItems"), color: theme.actionSheet.primaryTextColor)
+            }, action: { [weak self] c, f in
+                c?.dismiss(completion: { [weak self] in
+                    guard let self else {
+                        return
                     }
-                    let id = "\(index)_\(info)"
-                    let itemId = AnyHashable(id)
-                    validIds.append(itemId)
-                    
-                    var itemTransition = transition
-                    let visibleItem: ComponentView<Empty>
-                    if let current = self.starsItems[itemId] {
-                        visibleItem = current
-                    } else {
-                        visibleItem = ComponentView()
-                        self.starsItems[itemId] = visibleItem
-                        itemTransition = .immediate
+                    self.beginReordering()
+                })
+            })))
+            
+            items.append(.action(ContextMenuActionItem(text: params.presentationData.strings.PeerInfo_Gifts_DeleteCollection, textColor: .destructive, icon: { theme in
+                return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Delete"), color: theme.contextMenu.destructiveColor)
+            }, action: { [weak self] _, f in
+                guard let self else {
+                    return
+                }
+                f(.default)
+                
+                Queue.mainQueue().after(0.15) {
+                    self.deleteCollection(id: id)
+                }
+            })))
+        }
+        
+        let contextController = ContextController(
+            presentationData: params.presentationData,
+            source: .extracted(GiftsExtractedContentSource(sourceNode: sourceNode)),
+            items: .single(ContextController.Items(content: .list(items))),
+            recognizer: nil,
+            gesture: gesture
+        )
+        self.parentController?.presentInGlobalOverlay(contextController)
+    }
+    
+    func updateScrolling(interactive: Bool = false, transition: ComponentTransition) {
+        if let params = self.currentParams {
+            let visibleBounds = self.scrollNode.bounds.insetBy(dx: 0.0, dy: -10.0)
+                
+            var topInset: CGFloat = 60.0
+            
+            var canEditCollections = false
+            if self.peerId == self.context.account.peerId || self.canManage {
+                canEditCollections = true
+            }
+            var canShare = false
+            if let peer = self.peer, let addressName = peer.addressName, !addressName.isEmpty {
+                canShare = true
+            }
+            
+            let hasNonEmptyCollections = self.collections?.contains(where: { $0.count > 0 }) ?? false
+            if let collections = self.collections, !collections.isEmpty && (hasNonEmptyCollections || canEditCollections) {
+                var tabSelectorItems: [TabSelectorComponent.Item] = []
+                tabSelectorItems.append(TabSelectorComponent.Item(
+                    id: AnyHashable(GiftCollection.all.rawValue),
+                    title: params.presentationData.strings.PeerInfo_Gifts_Collections_All
+                ))
+                                
+                var effectiveCollections: [StarGiftCollection] = collections
+                if let reorderedCollectionIds = self.reorderedCollectionIds {
+                    var collectionMap: [Int32: StarGiftCollection] = [:]
+                    for collection in collections {
+                        collectionMap[collection.id] = collection
                     }
-                    
-                    let ribbonText: String?
-                    var ribbonColor: GiftItemComponent.Ribbon.Color = .blue
-                    switch product.gift {
-                    case let .generic(gift):
-                        if let availability = gift.availability {
-                            ribbonText = params.presentationData.strings.PeerInfo_Gifts_OneOf(compactNumericCountString(Int(availability.total))).string
-                        } else {
-                            ribbonText = nil
+                    var reorderedCollections: [StarGiftCollection] = []
+                    for id in reorderedCollectionIds {
+                        if let collection = collectionMap[id] {
+                            reorderedCollections.append(collection)
                         }
-                    case let .unique(gift):
-                        ribbonText = params.presentationData.strings.PeerInfo_Gifts_OneOf(compactNumericCountString(Int(gift.availability.total))).string
-                        for attribute in gift.attributes {
-                            if case let .backdrop(_, innerColor, outerColor, _, _, _) = attribute {
-                                ribbonColor = .custom(outerColor, innerColor)
-                                break
+                    }
+                    effectiveCollections = reorderedCollections
+                }
+                
+                for collection in effectiveCollections {
+                    if !canEditCollections && collection.count == 0 {
+                        continue
+                    }
+                    tabSelectorItems.append(TabSelectorComponent.Item(
+                        id: AnyHashable(GiftCollection.collection(collection.id).rawValue),
+                        content: .component(AnyComponent(
+                            CollectionTabItemComponent(
+                                context: self.context,
+                                icon: collection.icon.flatMap { .collection($0) },
+                                title: collection.title,
+                                theme: params.presentationData.theme
+                            )
+                        )),
+                        isReorderable: collections.count > 1,
+                        contextAction: canEditCollections || canShare ? { [weak self] sourceNode, gesture in
+                            guard let self else {
+                                return
+                            }
+                            self.openCollectionContextMenu(id: collection.id, sourceNode: sourceNode, gesture: gesture)
+                        } : nil
+                    ))
+                }
+                        
+                if canEditCollections {
+                    tabSelectorItems.append(TabSelectorComponent.Item(
+                        id: AnyHashable(GiftCollection.create.rawValue),
+                        content: .component(AnyComponent(
+                            CollectionTabItemComponent(
+                                context: self.context,
+                                icon: .add,
+                                title: params.presentationData.strings.PeerInfo_Gifts_Collections_Add,
+                                theme: params.presentationData.theme
+                            )
+                        )),
+                        isReorderable: false
+                    ))
+                }
+                
+                let tabSelectorSize = self.tabSelector.update(
+                    transition: transition,
+                    component: AnyComponent(TabSelectorComponent(
+                        context: self.context,
+                        colors: TabSelectorComponent.Colors(
+                            foreground: params.presentationData.theme.list.itemSecondaryTextColor,
+                            selection: params.presentationData.theme.list.itemSecondaryTextColor.withMultipliedAlpha(0.15),
+                            simple: true
+                        ),
+                        theme: params.presentationData.theme,
+                        customLayout: TabSelectorComponent.CustomLayout(
+                            font: Font.medium(14.0),
+                            spacing: 2.0
+                        ),
+                        items: tabSelectorItems,
+                        selectedId: AnyHashable(self.currentCollection.rawValue),
+                        reorderItem: self.isReordering ? { [weak self] fromId, toId in
+                            guard let self, var reorderedCollectionIds = self.reorderedCollectionIds else {
+                                return
+                            }
+                            guard let sourceId = fromId.base as? Int32 else {
+                                return
+                            }
+                            guard let targetId = toId.base as? Int32 else {
+                                return
+                            }
+                            guard let sourceIndex = reorderedCollectionIds.firstIndex(of: sourceId), let targetIndex = reorderedCollectionIds.firstIndex(of: targetId) else {
+                                return
+                            }
+                            reorderedCollectionIds[sourceIndex] = targetId
+                            reorderedCollectionIds[targetIndex] = sourceId
+                            self.reorderedCollectionIds = reorderedCollectionIds
+                                
+                            self.updateScrolling(transition: .easeInOut(duration: 0.2))
+                        } : nil,
+                        setSelectedId: { [weak self] id in
+                            guard let self, let idValue = id.base as? Int32 else {
+                                return
+                            }
+                            
+                            let giftCollection = GiftCollection(rawValue: idValue)
+                            if case .create = giftCollection {
+                                self.createCollection()
+                            } else {
+                                self.setCurrentCollection(collection: giftCollection)
                             }
                         }
-                    }
-                    
-                    let peer: GiftItemComponent.Peer?
-                    let subject: GiftItemComponent.Subject
-                    switch product.gift {
-                    case let .generic(gift):
-                        subject = .starGift(gift: gift, price: "⭐️ \(gift.price)")
-                        peer = product.fromPeer.flatMap { .peer($0) } ?? .anonymous
-                    case let .unique(gift):
-                        subject = .uniqueGift(gift: gift)
-                        peer = nil
-                    }
-                    
-                    let _ = visibleItem.update(
-                        transition: itemTransition,
-                        component: AnyComponent(
-                            PlainButtonComponent(
-                                content: AnyComponent(
-                                    GiftItemComponent(
-                                        context: self.context,
-                                        theme: params.presentationData.theme,
-                                        peer: peer,
-                                        subject: subject,
-                                        ribbon: ribbonText.flatMap { GiftItemComponent.Ribbon(text: $0, color: ribbonColor) },
-                                        isHidden: !product.savedToProfile,
-                                        mode: .profile
-                                    )
-                                ),
-                                effectAlignment: .center,
-                                action: { [weak self] in
-                                    guard let self else {
-                                        return
-                                    }
-                                    let controller = GiftViewScreen(
-                                        context: self.context,
-                                        subject: .profileGift(self.peerId, product),
-                                        updateSavedToProfile: { [weak self] messageId, added in
-                                            guard let self else {
-                                                return
-                                            }
-                                            self.profileGifts.updateStarGiftAddedToProfile(messageId: messageId, added: added)
-                                        },
-                                        convertToStars: { [weak self] in
-                                            guard let self, let messageId = product.messageId else {
-                                                return
-                                            }
-                                            self.profileGifts.convertStarGift(messageId: messageId)
-                                        },
-                                        transferGift: { [weak self] prepaid, peerId in
-                                            guard let self, let messageId = product.messageId else {
-                                                return
-                                            }
-                                            self.profileGifts.transferStarGift(prepaid: prepaid, messageId: messageId, peerId: peerId)
-                                        },
-                                        upgradeGift: { [weak self] formId, keepOriginalInfo in
-                                            guard let self, let messageId = product.messageId else {
-                                                return .never()
-                                            }
-                                            return self.profileGifts.upgradeStarGift(formId: formId, messageId: messageId, keepOriginalInfo: keepOriginalInfo)
-                                        }
-                                    )
-                                    self.parentController?.push(controller)
-                                    
-                                },
-                                animateAlpha: false
-                            )
-                        ),
-                        environment: {},
-                        containerSize: starsOptionSize
-                    )
-                    if let itemView = visibleItem.view {
-                        if itemView.superview == nil {
-                            self.scrollNode.view.addSubview(itemView)
+                    )),
+                    environment: {},
+                    containerSize: CGSize(width: params.size.width - 10.0 * 2.0, height: 50.0)
+                )
+                if let tabSelectorView = self.tabSelector.view {
+                    if tabSelectorView.superview == nil {
+                        tabSelectorView.alpha = 1.0
+                        self.scrollNode.view.insertSubview(tabSelectorView, at: 0)
+                        
+                        if !transition.animation.isImmediate {
+                            tabSelectorView.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
                         }
-                        itemTransition.setFrame(view: itemView, frame: itemFrame)
                     }
+                    transition.setFrame(view: tabSelectorView, frame: CGRect(origin: CGPoint(x: floor((params.size.width - tabSelectorSize.width) / 2.0), y: 60.0), size: tabSelectorSize))
+                    
+                    topInset += tabSelectorSize.height + 14.0
                 }
-                itemFrame.origin.x += itemFrame.width + optionSpacing
-                if itemFrame.maxX > params.size.width {
-                    itemFrame.origin.x = sideInset
-                    itemFrame.origin.y += starsOptionSize.height + optionSpacing
-                }
-                index += 1
+            } else if let tabSelectorView = self.tabSelector.view {
+                tabSelectorView.alpha = 0.0
+                tabSelectorView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.25, completion: { _ in
+                    tabSelectorView.removeFromSuperview()
+                })
             }
             
-            var removeIds: [AnyHashable] = []
-            for (id, item) in self.starsItems {
-                if !validIds.contains(id) {
-                    removeIds.append(id)
-                    if let itemView = item.view {
-                        if !transition.animation.isImmediate {
-                            itemView.layer.animateScale(from: 1.0, to: 0.01, duration: 0.25, removeOnCompletion: false)
-                            itemView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.25, removeOnCompletion: false, completion: { _ in
-                                itemView.removeFromSuperview()
-                            })
-                        } else {
-                            itemView.removeFromSuperview()
-                        }
-                    }
-                }
-            }
-            for id in removeIds {
-                self.starsItems.removeValue(forKey: id)
-            }
+            var contentHeight = self.giftsListView.updateScrolling(topInset: topInset, visibleBounds: visibleBounds, transition: transition)
             
             var bottomScrollInset: CGFloat = 0.0
-            var contentHeight = ceil(CGFloat(starsProducts.count) / 3.0) * (starsOptionSize.height + optionSpacing) - optionSpacing + topInset + 16.0
-            if self.peerId == self.context.account.peerId {
-                let transition = ComponentTransition.immediate
-                
-                let size = params.size
-                let sideInset = params.sideInset
-                let bottomInset = params.bottomInset
-                let presentationData = params.presentationData
-              
-                let themeUpdated = self.theme !== presentationData.theme
-                self.theme = presentationData.theme
-                
-                let unlockText: ComponentView<Empty>
-                let unlockBackground: NavigationBackgroundNode
-                let unlockSeparator: ASDisplayNode
-                let unlockButton: SolidRoundedButtonNode
-                if let current = self.unlockText {
-                    unlockText = current
-                } else {
-                    unlockText = ComponentView<Empty>()
-                    self.unlockText = unlockText
-                }
-                
-                if let current = self.unlockBackground {
-                    unlockBackground = current
-                } else {
-                    unlockBackground = NavigationBackgroundNode(color: presentationData.theme.rootController.tabBar.backgroundColor)
-                    self.addSubnode(unlockBackground)
-                    self.unlockBackground = unlockBackground
-                }
-                
-                if let current = self.unlockSeparator {
-                    unlockSeparator = current
-                } else {
-                    unlockSeparator = ASDisplayNode()
-                    self.addSubnode(unlockSeparator)
-                    self.unlockSeparator = unlockSeparator
-                }
-                                        
-                if let current = self.unlockButton {
-                    unlockButton = current
-                } else {
-                    unlockButton = SolidRoundedButtonNode(theme: SolidRoundedButtonTheme(theme: presentationData.theme), height: 50.0, cornerRadius: 10.0)
-                    self.view.addSubview(unlockButton.view)
-                    self.unlockButton = unlockButton
-                
-                    unlockButton.title = params.presentationData.strings.PeerInfo_Gifts_Send
-                    
-                    unlockButton.pressed = { [weak self] in
-                        self?.buttonPressed()
-                    }
-                }
+            let size = params.size
+            let sideInset = params.sideInset
+            let bottomInset = params.bottomInset
+            let presentationData = params.presentationData
+          
+            let themeUpdated = self.theme !== presentationData.theme
+            self.theme = presentationData.theme
             
-                if themeUpdated {
-                    unlockBackground.updateColor(color: presentationData.theme.rootController.tabBar.backgroundColor, transition: .immediate)
-                    unlockSeparator.backgroundColor = presentationData.theme.rootController.tabBar.separatorColor
-                    unlockButton.updateTheme(SolidRoundedButtonTheme(theme: presentationData.theme))
+            let panelBackground: NavigationBackgroundNode
+            let panelSeparator: ASDisplayNode
+            
+            var panelVisibility = params.expandProgress < 1.0 ? 0.0 : 1.0
+            if !self.canGift || self.resultsAreEmpty {
+                panelVisibility = 0.0
+            }
+            
+            let panelTransition: ComponentTransition = .immediate
+            if let current = self.panelBackground {
+                panelBackground = current
+            } else {
+                panelBackground = NavigationBackgroundNode(color: presentationData.theme.rootController.tabBar.backgroundColor)
+                self.addSubnode(panelBackground)
+                self.panelBackground = panelBackground
+            }
+            
+            if let current = self.panelSeparator {
+                panelSeparator = current
+            } else {
+                panelSeparator = ASDisplayNode()
+                panelBackground.addSubnode(panelSeparator)
+                self.panelSeparator = panelSeparator
+            }
+                    
+            let panelButton: ComponentView<Empty>
+            if let current = self.panelButton {
+                panelButton = current
+            } else {
+                panelButton = ComponentView<Empty>()
+                self.panelButton = panelButton
+            }
+            
+            let buttonSideInset = sideInset + 16.0
+            
+            let buttonTitle: String
+            var buttonIconName: String?
+            if self.peerId == self.context.account.peerId {
+                if case .all = self.currentCollection {
+                    buttonTitle = params.presentationData.strings.PeerInfo_Gifts_Send
+                } else {
+                    buttonTitle = params.presentationData.strings.PeerInfo_Gifts_AddGiftsButton
+                    buttonIconName = "Item List/AddItemIcon"
                 }
-                
-                let textFont = Font.regular(13.0)
-                let boldTextFont = Font.semibold(13.0)
-                let textColor = presentationData.theme.list.itemSecondaryTextColor
-                let linkColor = presentationData.theme.list.itemAccentColor
-                let markdownAttributes = MarkdownAttributes(body: MarkdownAttributeSet(font: textFont, textColor: textColor), bold: MarkdownAttributeSet(font: boldTextFont, textColor: textColor), link: MarkdownAttributeSet(font: boldTextFont, textColor: linkColor), linkAttribute: { _ in
-                    return nil
-                })
-                
-                var scrollOffset: CGFloat = max(0.0, size.height - params.visibleHeight)
-                
-                let buttonSideInset = sideInset + 16.0
-                let buttonSize = CGSize(width: size.width - buttonSideInset * 2.0, height: 50.0)
-                let bottomPanelHeight = bottomInset + buttonSize.height + 8.0
-                if params.visibleHeight < 110.0 {
-                    scrollOffset -= bottomPanelHeight
+            } else {
+                buttonTitle = params.presentationData.strings.PeerInfo_Gifts_SendGift
+            }
+            
+            let buttonAttributedString = NSAttributedString(string: buttonTitle, font: Font.semibold(17.0), textColor: .white, paragraphAlignment: .center)
+            var buttonTitleContent: AnyComponent<Empty> = AnyComponent(MultilineTextComponent(text: .plain(buttonAttributedString)))
+            if let buttonIconName {
+                buttonTitleContent = AnyComponent(HStack([
+                    AnyComponentWithIdentity(id: "_icon", component: AnyComponent(BundleIconComponent(
+                        name: buttonIconName,
+                        tintColor: presentationData.theme.list.itemCheckColors.foregroundColor,
+                        maxSize: CGSize(width: 18.0, height: 18.0)
+                    ))),
+                    AnyComponentWithIdentity(id: "_title", component: buttonTitleContent)
+                ], spacing: 7.0))
+            }
+            
+            let panelButtonSize = panelButton.update(
+                transition: transition,
+                component: AnyComponent(
+                    ButtonComponent(
+                        background: ButtonComponent.Background(
+                            color: presentationData.theme.list.itemCheckColors.fillColor,
+                            foreground: presentationData.theme.list.itemCheckColors.foregroundColor,
+                            pressedColor: presentationData.theme.list.itemCheckColors.fillColor.withMultipliedAlpha(0.8)
+                        ),
+                        content: AnyComponentWithIdentity(
+                            id: AnyHashable(buttonTitle),
+                            component: buttonTitleContent
+                        ),
+                        isEnabled: true,
+                        action: { [weak self] in
+                            self?.buttonPressed()
+                        }
+                    )
+                ),
+                environment: {},
+                containerSize: CGSize(width: size.width - buttonSideInset * 2.0, height: 50.0)
+            )
+            
+            var scrollOffset: CGFloat = max(0.0, size.height - params.visibleHeight)
+            
+            let effectiveBottomInset = max(8.0, bottomInset)
+            var bottomPanelHeight = effectiveBottomInset + panelButtonSize.height + 8.0
+            if params.visibleHeight < 110.0 {
+                scrollOffset -= bottomPanelHeight
+            }
+            
+            if let panelButtonView = panelButton.view {
+                if panelButtonView.superview == nil {
+                    panelBackground.view.addSubview(panelButtonView)
                 }
+                panelButtonView.frame = CGRect(origin: CGPoint(x: buttonSideInset, y: 8.0), size: panelButtonSize)
+            }
+            
+            if themeUpdated {
+                panelBackground.updateColor(color: presentationData.theme.rootController.tabBar.backgroundColor, transition: .immediate)
+                panelSeparator.backgroundColor = presentationData.theme.rootController.tabBar.separatorColor
+            }
+            
+            if self.canManage {
+                bottomPanelHeight -= 9.0
                 
-                transition.setFrame(view: unlockButton.view, frame: CGRect(origin: CGPoint(x: buttonSideInset, y: size.height - bottomInset - buttonSize.height - scrollOffset), size: buttonSize))
-                let _ = unlockButton.updateLayout(width: buttonSize.width, transition: .immediate)
+                let panelCheck: ComponentView<Empty>
+                if let current = self.panelCheck {
+                    panelCheck = current
+                } else {
+                    panelCheck = ComponentView<Empty>()
+                    self.panelCheck = panelCheck
+                }
+                let checkTheme = CheckComponent.Theme(
+                    backgroundColor: presentationData.theme.list.itemCheckColors.fillColor,
+                    strokeColor: presentationData.theme.list.itemCheckColors.foregroundColor,
+                    borderColor: presentationData.theme.list.itemCheckColors.strokeColor,
+                    overlayBorder: false,
+                    hasInset: false,
+                    hasShadow: false
+                )
                 
-                transition.setFrame(view: unlockBackground.view, frame: CGRect(x: 0.0, y: size.height - bottomInset - buttonSize.height - 8.0 - scrollOffset, width: size.width, height: bottomPanelHeight))
-                unlockBackground.update(size: CGSize(width: size.width, height: bottomPanelHeight), transition: transition.containedViewLayoutTransition)
-                transition.setFrame(view: unlockSeparator.view, frame: CGRect(x: 0.0, y: size.height - bottomInset - buttonSize.height - 8.0 - scrollOffset, width: size.width, height: UIScreenPixel))
-                
-                let unlockSize = unlockText.update(
+                let panelCheckSize = panelCheck.update(
                     transition: .immediate,
                     component: AnyComponent(
-                        BalancedTextComponent(
-                            text: .markdown(text: params.presentationData.strings.PeerInfo_Gifts_Info, attributes: markdownAttributes),
-                            horizontalAlignment: .center,
-                            maximumNumberOfLines: 0,
-                            lineSpacing: 0.2
+                        PlainButtonComponent(
+                            content: AnyComponent(HStack([
+                                AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(CheckComponent(
+                                    theme: checkTheme,
+                                    size: CGSize(width: 22.0, height: 22.0),
+                                    selected: self.profileGifts.currentState?.notificationsEnabled ?? false
+                                ))),
+                                AnyComponentWithIdentity(id: AnyHashable(1), component: AnyComponent(MultilineTextComponent(
+                                    text: .plain(NSAttributedString(string: presentationData.strings.PeerInfo_Gifts_ChannelNotify, font: Font.regular(17.0), textColor: presentationData.theme.list.itemPrimaryTextColor))
+                                )))
+                            ],
+                            spacing: 16.0
+                            )),
+                            effectAlignment: .center,
+                            action: { [weak self] in
+                                guard let self, let currentState = self.profileGifts.currentState else {
+                                    return
+                                }
+                                let enabled = !(currentState.notificationsEnabled ?? false)
+                                self.profileGifts.toggleStarGiftsNotifications(enabled: enabled)
+                                
+                                let animation = enabled ? "anim_profileunmute" : "anim_profilemute"
+                                let text = enabled ? presentationData.strings.PeerInfo_Gifts_ChannelNotifyTooltip : presentationData.strings.PeerInfo_Gifts_ChannelNotifyDisabledTooltip
+                                
+                                let controller = UndoOverlayController(
+                                    presentationData: presentationData,
+                                    content: .universal(animation: animation, scale: 0.075, colors: ["__allcolors__": UIColor.white], title: nil, text: text, customUndoText: nil, timeout: nil),
+                                    appearance: UndoOverlayController.Appearance(bottomInset: 53.0),
+                                    action: { _ in return true }
+                                )
+                                self.chatControllerInteraction.presentController(controller, nil)
+                              
+                                self.updateScrolling(transition: .immediate)
+                            },
+                            animateAlpha: false,
+                            animateScale: false
                         )
                     ),
                     environment: {},
-                    containerSize: CGSize(width: size.width - 32.0, height: 200.0)
+                    containerSize: panelButtonSize
                 )
-                if let view = unlockText.view {
-                    if view.superview == nil {
-                        view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(self.buttonPressed)))
-                        self.scrollNode.view.addSubview(view)
+                if let panelCheckView = panelCheck.view {
+                    if panelCheckView.superview == nil {
+                        panelBackground.view.addSubview(panelCheckView)
                     }
-                    transition.setFrame(view: view, frame: CGRect(origin: CGPoint(x: floor((size.width - unlockSize.width) / 2.0), y: contentHeight), size: unlockSize))
+                    panelCheckView.frame = CGRect(origin: CGPoint(x: floor((size.width - panelCheckSize.width) / 2.0), y: 16.0), size: panelCheckSize)
                 }
-                contentHeight += unlockSize.height
-                contentHeight += bottomPanelHeight
-                
-                bottomScrollInset = bottomPanelHeight - 40.0
+                if let panelButtonView = panelButton.view {
+                    panelButtonView.isHidden = true
+                }
             }
+            
+            panelTransition.setFrame(view: panelBackground.view, frame: CGRect(x: 0.0, y: size.height - bottomPanelHeight - scrollOffset, width: size.width, height: bottomPanelHeight))
+            ComponentTransition.spring(duration: 0.4).setSublayerTransform(view: panelBackground.view, transform: CATransform3DMakeTranslation(0.0, bottomPanelHeight * (1.0 - panelVisibility), 0.0))
+            
+            panelBackground.update(size: CGSize(width: size.width, height: bottomPanelHeight), transition: transition.containedViewLayoutTransition)
+            panelTransition.setFrame(view: panelSeparator.view, frame: CGRect(x: 0.0, y: 0.0, width: size.width, height: UIScreenPixel))
+            
+            contentHeight += bottomPanelHeight
+            bottomScrollInset = bottomPanelHeight - 40.0
             contentHeight += params.bottomInset
             
             self.scrollNode.view.scrollIndicatorInsets = UIEdgeInsets(top: 50.0, left: 0.0, bottom: bottomScrollInset, right: 0.0)
@@ -413,32 +936,502 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
         }
         
         let bottomContentOffset = max(0.0, self.scrollNode.view.contentSize.height - self.scrollNode.view.contentOffset.y - self.scrollNode.view.frame.height)
-        if bottomContentOffset < 200.0 {
-            self.profileGifts.loadMore()
+        if interactive, bottomContentOffset < 200.0 {
+            self.giftsListView.loadMore()
         }
     }
         
     @objc private func buttonPressed() {
-        let _ = (self.context.account.stateManager.contactBirthdays
-        |> take(1)
-        |> deliverOnMainQueue).start(next: { [weak self] birthdays in
-            guard let self else {
-                return
+        if self.peerId == self.context.account.peerId || self.canManage {
+            if case let .collection(id) = self.currentCollection {
+                self.addGiftsToCollection(id: id)
+            } else {
+                let _ = (self.context.account.stateManager.contactBirthdays
+                         |> take(1)
+                         |> deliverOnMainQueue).start(next: { [weak self] birthdays in
+                    guard let self else {
+                        return
+                    }
+                    let controller = self.context.sharedContext.makePremiumGiftController(context: self.context, source: .settings(birthdays), completion: nil)
+                    controller.navigationPresentation = .modal
+                    self.chatControllerInteraction.navigationController()?.pushViewController(controller)
+                })
             }
-            let controller = self.context.sharedContext.makePremiumGiftController(context: self.context, source: .settings(birthdays), completion: nil)
-            controller.navigationPresentation = .modal
-            self.chatControllerInteraction.navigationController()?.pushViewController(controller)
-        })
+        } else {
+            self.chatControllerInteraction.sendGift(self.peerId)
+        }
+    }
+    
+    private func contextAction(gift: ProfileGiftsContext.State.StarGift, view: UIView, gesture: ContextGesture) {
+        guard let currentParams = self.currentParams else {
+            return
+        }
+        let presentationData = currentParams.presentationData
+        let strings = presentationData.strings
+        
+        let canManage = self.peerId == self.context.account.peerId || self.canManage
+        var canReorder = false
+        if case .all = self.currentCollection, let currentState = self.profileGifts.currentState {
+            if case .All = currentState.filter {
+                for gift in currentState.gifts {
+                    if gift.pinnedToTop {
+                        canReorder = true
+                        break
+                    }
+                }
+            }
+        } else {
+            canReorder = true
+        }
+        
+        let profileGifts: ProfileGiftsContext
+        switch self.currentCollection {
+        case let .collection(id):
+            profileGifts = self.profileGiftsCollections.giftsContextForCollection(id: id)
+        default:
+            profileGifts = self.profileGifts
+        }
+        
+        var items: [ContextMenuItem] = []
+        if canManage {
+            items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_AddToCollection, textLayout: .twoLinesMax, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Peer Info/Gifts/AddToCollection"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
+                var subItems: [ContextMenuItem] = []
+                
+                subItems.append(.action(ContextMenuActionItem(text: strings.Common_Back, textColor: .primary, icon: { theme in
+                    return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Back"), color: theme.actionSheet.primaryTextColor)
+                }, iconSource: nil, iconPosition: .left, action: { c, _ in
+                    c?.popItems()
+                })))
+                
+                subItems.append(.separator)
+                
+                subItems.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_NewCollection, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Peer Info/Gifts/AddCollection"), color: theme.contextMenu.primaryColor) }, iconPosition: .left, action: { [weak self] c, f in
+                    f(.default)
+                    
+                    self?.createCollection(gifts: [gift])
+                })))
+                
+                var entityFiles: [Int64: TelegramMediaFile] = [:]
+                
+                if let collections = self?.collections {
+                    for collection in collections {
+                        if let file = collection.icon {
+                            entityFiles[file.fileId.id] = file
+                        }
+                    }
+                    
+                    for collection in collections {
+                        let title: String
+                        var entities: [MessageTextEntity] = []
+                        if let icon = collection.icon {
+                            title = "#   \(collection.title)"
+                            entities = [
+                                MessageTextEntity(
+                                    range: 0..<1,
+                                    type: .CustomEmoji(stickerPack: nil, fileId: icon.fileId.id)
+                                )
+                            ]
+                        } else {
+                            title = collection.title
+                        }
+                        
+                        let isAdded = gift.collectionIds?.contains(collection.id) ?? false
+                        
+                        subItems.append(.action(ContextMenuActionItem(text: title, entities: entities, entityFiles: entityFiles, enableEntityAnimations: false, icon: { theme in
+                            return entities.isEmpty ? generateTintedImage(image: UIImage(bundleImageName: "Peer Info/Gifts/Collection"), color: theme.contextMenu.primaryColor) : (isAdded ? generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Check"), color: theme.contextMenu.primaryColor) : nil)
+                        }, iconPosition: collection.icon == nil ? .left : .right, action: { [weak self] _, f in
+                            f(.default)
+                            
+                            guard let self else {
+                                return
+                            }
+                            
+                            if isAdded, let giftReference = gift.reference {
+                                let _ = self.profileGiftsCollections.removeGifts(id: collection.id, gifts: [giftReference]).start()
+                            } else {
+                                let _ = self.profileGiftsCollections.addGifts(id: collection.id, gifts: [gift]).start()
+                            }
+                            
+                            var giftFile: TelegramMediaFile?
+                            var giftTitle: String?
+                            switch gift.gift {
+                            case let .generic(gift):
+                                giftFile = gift.file
+                            case let .unique(uniqueGift):
+                                giftTitle = uniqueGift.title + " #\(presentationStringsFormattedNumber(uniqueGift.number, currentParams.presentationData.dateTimeFormat.groupingSeparator))"
+                                for attribute in uniqueGift.attributes {
+                                    if case let .model(_, file, _) = attribute {
+                                        giftFile = file
+                                    }
+                                }
+                            }
+                            
+                            if let giftFile {
+                                let text: String
+                                if let giftTitle {
+                                    if isAdded {
+                                        text = currentParams.presentationData.strings.PeerInfo_Gifts_RemovedFromCollectionUnique(giftTitle, collection.title).string
+                                    } else {
+                                        text = currentParams.presentationData.strings.PeerInfo_Gifts_AddedToCollectionUnique(giftTitle, collection.title).string
+                                    }
+                                } else {
+                                    if isAdded {
+                                        text = currentParams.presentationData.strings.PeerInfo_Gifts_RemovedFromCollection(collection.title).string
+                                    } else {
+                                        text = currentParams.presentationData.strings.PeerInfo_Gifts_AddedToCollection(collection.title).string
+                                    }
+                                }
+                                
+                                let undoController = UndoOverlayController(
+                                    presentationData: currentParams.presentationData,
+                                    content: .sticker(context: self.context, file: giftFile, loop: false, title: nil, text: text, undoText: nil, customAction: nil),
+                                    elevatedLayout: true,
+                                    action: { _ in return true }
+                                )
+                                self.parentController?.present(undoController, in: .current)
+                            }
+                        })))
+                    }
+                }
+                
+                c?.pushItems(items: .single(ContextController.Items(content: .list(subItems))))
+            })))
+            items.append(.separator)
+        }
+        
+        if canManage {
+            if case .unique = gift.gift, case .all = self.currentCollection {
+                items.append(.action(ContextMenuActionItem(text: gift.pinnedToTop ? strings.PeerInfo_Gifts_Context_Unpin : strings.PeerInfo_Gifts_Context_Pin, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: gift.pinnedToTop ? "Chat/Context Menu/Unpin" : "Chat/Context Menu/Pin"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
+                    c?.dismiss(completion: { [weak self] in
+                        guard let self else {
+                            return
+                        }
+                        let pinnedToTop = !gift.pinnedToTop
+                        guard let reference = gift.reference else {
+                            return
+                        }
+                        
+                        if pinnedToTop && self.giftsListView.pinnedReferences.count >= self.giftsListView.maxPinnedCount {
+                            self.displayUnpinScreen(gift: gift)
+                            return
+                        }
+                        
+                        profileGifts.updateStarGiftPinnedToTop(reference: reference, pinnedToTop: pinnedToTop)
+                        
+                        let toastTitle: String?
+                        let toastText: String
+                        if !pinnedToTop {
+                            toastTitle = nil
+                            toastText = strings.PeerInfo_Gifts_ToastUnpinned_Text
+                        } else {
+                            var title = ""
+                            if case let .unique(uniqueGift) = gift.gift {
+                                title = "\(uniqueGift.title) #\(presentationStringsFormattedNumber(uniqueGift.number, presentationData.dateTimeFormat.groupingSeparator))"
+                            }
+                            toastTitle = strings.PeerInfo_Gifts_ToastPinned_TitleNew(title).string
+                            toastText = strings.PeerInfo_Gifts_ToastPinned_Text
+                        }
+                        self.parentController?.present(UndoOverlayController(presentationData: presentationData, content: .universal(animation: !pinnedToTop ? "anim_toastunpin" : "anim_toastpin", scale: 0.06, colors: [:], title: toastTitle, text: toastText, customUndoText: nil, timeout: 5), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
+                    })
+                })))
+            }
+            
+            var isReorderableGift = false
+            if case .unique = gift.gift {
+                isReorderableGift = true
+            } else if case .collection = self.currentCollection {
+                isReorderableGift = true
+            }
+            
+            if isReorderableGift && canManage && canReorder {
+                items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_Reorder, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/ReorderItems"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
+                    c?.dismiss(completion: { [weak self] in
+                        guard let self else {
+                            return
+                        }
+                        self.beginReordering()
+                    })
+                })))
+            }
+            
+            if case let .unique(uniqueGift) = gift.gift, self.peerId == self.context.account.peerId {
+                items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_Wear, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Peer Info/WearIcon"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
+                    c?.dismiss(completion: { [weak self] in
+                        guard let self else {
+                            return
+                        }
+                        if self.context.isPremium {
+                            let _ = self.context.engine.accountData.setStarGiftStatus(starGift: uniqueGift, expirationDate: nil).startStandalone()
+                        } else {
+                            let text = strings.Gift_View_TooltipPremiumWearing
+                            let tooltipController = UndoOverlayController(
+                                presentationData: presentationData,
+                                content: .premiumPaywall(title: nil, text: text, customUndoText: nil, timeout: nil, linkAction: nil),
+                                position: .bottom,
+                                animateInAsReplacement: false,
+                                appearance: UndoOverlayController.Appearance(sideInset: 16.0, bottomInset: 62.0),
+                                action: { [weak self] action in
+                                    if let self, case .info = action {
+                                        let premiumController = self.context.sharedContext.makePremiumIntroController(context: self.context, source: .messageEffects, forceDark: false, dismissed: nil)
+                                        self.parentController?.push(premiumController)
+                                    }
+                                    return false
+                                }
+                            )
+                            self.parentController?.present(tooltipController, in: .current)
+                        }
+                    })
+                })))
+            }
+        }
+        
+        if case let .unique(gift) = gift.gift {
+            let link = "https://t.me/nft/\(gift.slug)"
+            
+            items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_CopyLink, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Link"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
+                c?.dismiss(completion: { [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    UIPasteboard.general.string = link
+                    
+                    self.parentController?.present(UndoOverlayController(presentationData: currentParams.presentationData, content: .linkCopied(title: nil, text: currentParams.presentationData.strings.Conversation_LinkCopied), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .current)
+                })
+            })))
+            
+            items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_Share, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Forward"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
+                c?.dismiss(completion: { [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    let context = self.context
+                    let shareController = context.sharedContext.makeShareController(
+                        context: context,
+                        subject: .url(link),
+                        forceExternal: false,
+                        shareStory: { [weak self] in
+                            guard let self, let parentController = self.parentController else {
+                                return
+                            }
+                            Queue.mainQueue().after(0.15) {
+                                let controller = self.context.sharedContext.makeStorySharingScreen(context: self.context, subject: .gift(gift), parentController: parentController)
+                                parentController.push(controller)
+                            }
+                        },
+                        enqueued: { [weak self] peerIds, _ in
+                            let _ = (context.engine.data.get(
+                                EngineDataList(
+                                    peerIds.map(TelegramEngine.EngineData.Item.Peer.Peer.init)
+                                )
+                            )
+                            |> deliverOnMainQueue).startStandalone(next: { [weak self] peerList in
+                                guard let self, let parentController = self.parentController else {
+                                    return
+                                }
+                                
+                                let peers = peerList.compactMap { $0 }
+                                let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+                                let text: String
+                                var savedMessages = false
+                                if peerIds.count == 1, let peerId = peerIds.first, peerId == context.account.peerId {
+                                    text = presentationData.strings.Conversation_ForwardTooltip_SavedMessages_One
+                                    savedMessages = true
+                                } else {
+                                    if peers.count == 1, let peer = peers.first {
+                                        var peerName = peer.id == context.account.peerId ? presentationData.strings.DialogList_SavedMessages : peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                                        peerName = peerName.replacingOccurrences(of: "**", with: "")
+                                        text = presentationData.strings.Conversation_ForwardTooltip_Chat_One(peerName).string
+                                    } else if peers.count == 2, let firstPeer = peers.first, let secondPeer = peers.last {
+                                        var firstPeerName = firstPeer.id == context.account.peerId ? presentationData.strings.DialogList_SavedMessages : firstPeer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                                        firstPeerName = firstPeerName.replacingOccurrences(of: "**", with: "")
+                                        var secondPeerName = secondPeer.id == context.account.peerId ? presentationData.strings.DialogList_SavedMessages : secondPeer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                                        secondPeerName = secondPeerName.replacingOccurrences(of: "**", with: "")
+                                        text = presentationData.strings.Conversation_ForwardTooltip_TwoChats_One(firstPeerName, secondPeerName).string
+                                    } else if let peer = peers.first {
+                                        var peerName = peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                                        peerName = peerName.replacingOccurrences(of: "**", with: "")
+                                        text = presentationData.strings.Conversation_ForwardTooltip_ManyChats_One(peerName, "\(peers.count - 1)").string
+                                    } else {
+                                        text = ""
+                                    }
+                                }
+                                
+                                parentController.present(UndoOverlayController(presentationData: presentationData, content: .forward(savedMessages: savedMessages, text: text), elevatedLayout: true, animateInAsReplacement: false, action: { [weak self] action in
+                                    if savedMessages, action == .info {
+                                        let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))
+                                        |> deliverOnMainQueue).start(next: { [weak self] peer in
+                                            guard let peer, let navigationController = self?.parentController?.navigationController as? NavigationController else {
+                                                return
+                                            }
+                                            context.sharedContext.navigateToChatController(NavigateToChatControllerParams(navigationController: navigationController, chatController: nil, context: context, chatLocation: .peer(peer), subject: nil, botStart: nil, updateTextInputState: nil, keepStack: .always, useExisting: true, purposefulAction: nil, scrollToEndIfExists: false, activateMessageSearch: nil, animated: true))
+                                        })
+                                    }
+                                    return false
+                                }, additionalView: nil), in: .current)
+                            })
+                        },
+                        actionCompleted: { [weak self] in
+                            self?.parentController?.present(UndoOverlayController(presentationData: presentationData, content: .linkCopied(title: nil, text: presentationData.strings.Conversation_LinkCopied), elevatedLayout: true, animateInAsReplacement: false, action: { _ in return false }), in: .current)
+                        }
+                    )
+                    self.parentController?.present(shareController, in: .window(.root))
+                })
+            })))
+        }
+        
+        if canManage {
+            items.append(.action(ContextMenuActionItem(text: gift.savedToProfile ? strings.PeerInfo_Gifts_Context_Hide : strings.PeerInfo_Gifts_Context_Show, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: gift.savedToProfile ? "Peer Info/HideIcon" : "Peer Info/ShowIcon"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
+                c?.dismiss(completion: { [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    if let reference = gift.reference {
+                        let added = !gift.savedToProfile
+                        profileGifts.updateStarGiftAddedToProfile(reference: reference, added: added)
+                        
+                        var animationFile: TelegramMediaFile?
+                        switch gift.gift {
+                        case let .generic(gift):
+                            animationFile = gift.file
+                        case let .unique(gift):
+                            for attribute in gift.attributes {
+                                if case let .model(_, file, _) = attribute {
+                                    animationFile = file
+                                    break
+                                }
+                            }
+                        }
+                                                
+                        let text: String
+                        if self.peerId.namespace == Namespaces.Peer.CloudChannel {
+                            text = added ? presentationData.strings.Gift_Displayed_ChannelText : presentationData.strings.Gift_Hidden_ChannelText
+                        } else {
+                            text = added ? presentationData.strings.Gift_Displayed_NewText : presentationData.strings.Gift_Hidden_NewText
+                        }
+                        
+                        if let animationFile {
+                            let resultController = UndoOverlayController(
+                                presentationData: presentationData,
+                                content: .sticker(context: context, file: animationFile, loop: false, title: nil, text: text, undoText: nil, customAction: nil),
+                                elevatedLayout: true,
+                                action: { _ in
+                                    return true
+                                }
+                            )
+                            self.parentController?.present(resultController, in: .window(.root))
+                        }
+                    }
+                })
+            })))
+            
+            if case let .unique(uniqueGift) = gift.gift {
+                items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_Transfer, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Peer Info/TransferIcon"), color: theme.contextMenu.primaryColor) }, action: { [weak self] c, f in
+                    c?.dismiss(completion: { [weak self] in
+                        guard let self else {
+                            return
+                        }
+                        let context = self.context
+                        let _ = (context.account.stateManager.contactBirthdays
+                        |> take(1)
+                        |> deliverOnMainQueue).start(next: { [weak self] birthdays in
+                            guard let self, let reference = gift.reference else {
+                                return
+                            }
+                            var showSelf = false
+                            if self.peerId.namespace == Namespaces.Peer.CloudChannel {
+                                showSelf = true
+                            }
+                            let transferStars = gift.transferStars ?? 0
+                            let controller = context.sharedContext.makePremiumGiftController(context: context, source: .starGiftTransfer(birthdays, reference, uniqueGift, transferStars, gift.canExportDate, showSelf), completion: { peerIds in
+                                guard let peerId = peerIds.first else {
+                                    return .complete()
+                                }
+                                Queue.mainQueue().after(1.5, {
+                                    if transferStars > 0 {
+                                        context.starsContext?.load(force: true)
+                                    }
+                                })
+                                return profileGifts.transferStarGift(prepaid: transferStars == 0, reference: reference, peerId: peerId)
+                            })
+                            self.parentController?.push(controller)
+                        })
+                    })
+                })))
+            }
+        }
+        
+        if canManage, case let .collection(id) = self.currentCollection {
+            items.append(.action(ContextMenuActionItem(text: strings.PeerInfo_Gifts_Context_RemoveFromCollection, textColor: .destructive, textLayout: .twoLinesMax, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Peer Info/Gifts/RemoveFromCollection"), color: theme.contextMenu.destructiveColor) }, action: { [weak self] c, f in
+                f(.default)
+                
+                guard let self else {
+                    return
+                }
+                
+                if let reference = gift.reference {
+                    let _ = self.profileGiftsCollections.removeGifts(id: id, gifts: [reference]).start()
+                }
+                
+                var giftFile: TelegramMediaFile?
+                var giftTitle: String?
+                switch gift.gift {
+                case let .generic(gift):
+                    giftFile = gift.file
+                case let .unique(uniqueGift):
+                    giftTitle = uniqueGift.title + " #\(presentationStringsFormattedNumber(uniqueGift.number, currentParams.presentationData.dateTimeFormat.groupingSeparator))"
+                    for attribute in uniqueGift.attributes {
+                        if case let .model(_, file, _) = attribute {
+                            giftFile = file
+                        }
+                    }
+                }
+                
+                if let giftFile, let collection = self.collections?.first(where: { $0.id == id }) {
+                    let text: String
+                    if let giftTitle {
+                        text = currentParams.presentationData.strings.PeerInfo_Gifts_RemovedFromCollectionUnique(giftTitle, collection.title).string
+                    } else {
+                        text = currentParams.presentationData.strings.PeerInfo_Gifts_RemovedFromCollection(collection.title).string
+                    }
+                    
+                    let undoController = UndoOverlayController(
+                        presentationData: currentParams.presentationData,
+                        content: .sticker(context: self.context, file: giftFile, loop: false, title: nil, text: text, undoText: nil, customAction: nil),
+                        elevatedLayout: true,
+                        action: { _ in return true }
+                    )
+                    self.parentController?.present(undoController, in: .current)
+                }
+            })))
+        }
+        
+        guard !items.isEmpty else {
+            return
+        }
+        
+        let previewController = GiftContextPreviewController(context: self.context, gift: gift)
+        let contextController = ContextController(
+            context: self.context,
+            presentationData: currentParams.presentationData,
+            source: .controller(ContextControllerContentSourceImpl(controller: previewController, sourceView: view)),
+            items: .single(ContextController.Items(content: .list(items))), gesture: gesture
+        )
+        self.parentController?.presentInGlobalOverlay(contextController)
     }
     
     public func update(size: CGSize, topInset: CGFloat, sideInset: CGFloat, bottomInset: CGFloat, deviceMetrics: DeviceMetrics, visibleHeight: CGFloat, isScrollingLockedAtTop: Bool, expandProgress: CGFloat, navigationHeight: CGFloat, presentationData: PresentationData, synchronous: Bool, transition: ContainedViewLayoutTransition) {
-        self.currentParams = (size, sideInset, bottomInset, visibleHeight, isScrollingLockedAtTop, presentationData)
+        self.currentParams = (size, topInset, sideInset, bottomInset, deviceMetrics, visibleHeight, isScrollingLockedAtTop, expandProgress, navigationHeight, presentationData)
         self.presentationDataPromise.set(.single(presentationData))
         
         self.backgroundNode.backgroundColor = presentationData.theme.list.blocksBackgroundColor
         transition.updateFrame(node: self.backgroundNode, frame: CGRect(origin: CGPoint(x: 0.0, y: 48.0), size: size))
         transition.updateFrame(node: self.scrollNode, frame: CGRect(origin: CGPoint(), size: size))
-
+        
+        let visibleBounds = self.scrollNode.bounds.insetBy(dx: 0.0, dy: -10.0)
+        
+        let contentHeight = self.giftsListView.update(size: size, sideInset: sideInset, bottomInset: bottomInset, deviceMetrics: deviceMetrics, visibleHeight: visibleHeight, isScrollingLockedAtTop: isScrollingLockedAtTop, expandProgress: expandProgress, presentationData: presentationData, synchronous: synchronous, visibleBounds: visibleBounds, transition: transition)
+        transition.updateFrame(view: self.giftsListView, frame: CGRect(origin: CGPoint(), size: CGSize(width: size.width, height: max(size.height, contentHeight))))
+        
         if isScrollingLockedAtTop {
             self.scrollNode.view.contentOffset = .zero
         }
@@ -471,5 +1464,224 @@ public final class PeerInfoGiftsPaneNode: ASDisplayNode, PeerInfoPaneNode, UIScr
     }
     
     public func updateSelectedMessages(animated: Bool) {
+    }
+}
+
+private func cancelContextGestures(view: UIView) {
+    if let gestureRecognizers = view.gestureRecognizers {
+        for gesture in gestureRecognizers {
+            if let gesture = gesture as? ContextGesture {
+                gesture.cancel()
+            }
+        }
+    }
+    for subview in view.subviews {
+        cancelContextGestures(view: subview)
+    }
+}
+
+private final class CollectionTabItemComponent: Component {
+    typealias EnvironmentType = TabSelectorComponent.ItemEnvironment
+    
+    enum Icon: Equatable {
+        case collection(TelegramMediaFile)
+        case add
+    }
+    
+    let context: AccountContext
+    let icon: Icon?
+    let title: String
+    let theme: PresentationTheme
+    
+    init(
+        context: AccountContext,
+        icon: Icon?,
+        title: String,
+        theme: PresentationTheme
+    ) {
+        self.context = context
+        self.icon = icon
+        self.title = title
+        self.theme = theme
+    }
+    
+    static func ==(lhs: CollectionTabItemComponent, rhs: CollectionTabItemComponent) -> Bool {
+        if lhs.icon != rhs.icon {
+            return false
+        }
+        if lhs.title != rhs.title {
+            return false
+        }
+        if lhs.theme !== rhs.theme {
+            return false
+        }
+        return true
+    }
+    
+    final class View: UIView {
+        private let title = ComponentView<Empty>()
+        private let icon = ComponentView<Empty>()
+        private var iconLayer: InlineStickerItemLayer?
+                
+        private var component: CollectionTabItemComponent?
+                
+        func update(component: CollectionTabItemComponent, availableSize: CGSize, state: State, environment: Environment<EnvironmentType>, transition: ComponentTransition) -> CGSize {
+            self.component = component
+            
+            let environment = environment[EnvironmentType.self].value
+                        
+            let iconSpacing: CGFloat = 3.0
+            
+            let normalColor = component.theme.list.itemSecondaryTextColor
+            let selectedColor = component.theme.list.freeTextColor
+            let effectiveColor = normalColor.mixedWith(selectedColor, alpha: environment.selectionFraction)
+            
+            let titleSize = self.title.update(
+                transition: .immediate,
+                component: AnyComponent(MultilineTextComponent(
+                    text: .plain(NSAttributedString(string: component.title, font: Font.medium(14.0), textColor: effectiveColor))
+                )),
+                environment: {},
+                containerSize: CGSize(width: availableSize.width, height: 100.0)
+            )
+                        
+            var iconOffset: CGFloat = 0.0
+            var iconSize = CGSize()
+            if let icon = component.icon  {
+                switch icon {
+                case let .collection(file):
+                    iconSize = CGSize(width: 16.0, height: 16.0)
+                    
+                    let iconLayer: InlineStickerItemLayer
+                    if let current = self.iconLayer {
+                        iconLayer = current
+                    } else {
+                        iconLayer = InlineStickerItemLayer(
+                            context: component.context,
+                            userLocation: .other,
+                            attemptSynchronousLoad: true,
+                            emoji: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: file.fileId.id, file: file),
+                            file: file,
+                            cache: component.context.animationCache,
+                            renderer: component.context.animationRenderer,
+                            placeholderColor: component.theme.list.mediaPlaceholderColor,
+                            pointSize: iconSize,
+                            loopCount: 1
+                        )
+                        self.layer.addSublayer(iconLayer)
+                        self.iconLayer = iconLayer
+                    }
+                    let iconFrame = CGRect(origin: CGPoint(x: iconOffset, y: floorToScreenPixels((titleSize.height - iconSize.height) * 0.5)), size: iconSize)
+                    iconLayer.frame = iconFrame
+                case .add:
+                    iconSize = self.icon.update(
+                        transition: .immediate,
+                        component: AnyComponent(BundleIconComponent(
+                            name: "Chat/Input/Media/PanelBadgeAdd",
+                            tintColor: component.theme.list.itemSecondaryTextColor
+                        )),
+                        environment: {},
+                        containerSize: CGSize(width: 100.0, height: 100.0)
+                    )
+                    let iconFrame = CGRect(origin: CGPoint(x: iconOffset, y: floorToScreenPixels((titleSize.height - iconSize.height) * 0.5)), size: iconSize)
+                    if let iconView = self.icon.view {
+                        if iconView.superview == nil {
+                            iconView.isUserInteractionEnabled = false
+                            self.addSubview(iconView)
+                        }
+                        iconView.frame = iconFrame
+                    }
+                }
+                                
+                iconOffset += iconSize.width + iconSpacing
+            } else {
+                if let iconLayer = self.iconLayer {
+                    self.iconLayer = nil
+                    iconLayer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, removeOnCompletion: false, completion: { _ in
+                        iconLayer.removeFromSuperlayer()
+                    })
+                    iconLayer.animateScale(from: 1.0, to: 0.01, duration: 0.2, removeOnCompletion: false)
+                }
+                if let iconView = self.icon.view {
+                    iconView.removeFromSuperview()
+                }
+            }
+            
+            let titleFrame = CGRect(origin: CGPoint(x: iconOffset, y: 0.0), size: titleSize)
+            if let titleView = self.title.view {
+                if titleView.superview == nil {
+                    titleView.isUserInteractionEnabled = false
+                    self.addSubview(titleView)
+                }
+                titleView.frame = titleFrame
+            }
+                        
+            let size: CGSize
+            if let _ = component.icon {
+                size = CGSize(width: iconSize.width + iconSpacing + titleSize.width, height: titleSize.height)
+            } else {
+                size = titleSize
+            }
+             
+            return size
+        }
+    }
+    
+    func makeView() -> View {
+        return View(frame: CGRect())
+    }
+    
+    func update(view: View, availableSize: CGSize, state: State, environment: Environment<EnvironmentType>, transition: ComponentTransition) -> CGSize {
+        return view.update(component: self, availableSize: availableSize, state: state, environment: environment, transition: transition)
+    }
+}
+
+private final class ContextControllerContentSourceImpl: ContextControllerContentSource {
+    let controller: ViewController
+    weak var sourceView: UIView?
+    
+    let navigationController: NavigationController? = nil
+    
+    let passthroughTouches: Bool = false
+    
+    init(controller: ViewController, sourceView: UIView?) {
+        self.controller = controller
+        self.sourceView = sourceView
+    }
+    
+    func transitionInfo() -> ContextControllerTakeControllerInfo? {
+        let sourceView = self.sourceView
+        
+        return ContextControllerTakeControllerInfo(contentAreaInScreenSpace: CGRect(origin: CGPoint(), size: CGSize(width: 10.0, height: 10.0)), sourceNode: { [weak sourceView] in
+            if let sourceView {
+                return (sourceView, sourceView.bounds)
+            } else {
+                return nil
+            }
+        })
+    }
+    
+    func animatedIn() {
+        self.controller.didAppearInContextPreview()
+    }
+}
+
+private final class GiftsExtractedContentSource: ContextExtractedContentSource {
+    let keepInPlace: Bool = false
+    let ignoreContentTouches: Bool = false
+    let blurBackground: Bool = true
+    
+    private let sourceNode: ContextExtractedContentContainingNode
+    
+    init(sourceNode: ContextExtractedContentContainingNode) {
+        self.sourceNode = sourceNode
+    }
+    
+    func takeView() -> ContextControllerTakeViewInfo? {
+        return ContextControllerTakeViewInfo(containingItem: .node(self.sourceNode), contentAreaInScreenSpace: UIScreen.main.bounds)
+    }
+    
+    func putBack() -> ContextControllerPutBackViewInfo? {
+        return ContextControllerPutBackViewInfo(contentAreaInScreenSpace: UIScreen.main.bounds)
     }
 }

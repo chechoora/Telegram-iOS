@@ -607,14 +607,14 @@ private final class DemoSheetContent: CombinedComponent {
                     if let items = items {
                         for item in items {
                             if let mediaItem = item.contents.get(RecentMediaItem.self) {
-                                result.append(mediaItem.media)
+                                result.append(mediaItem.media._parse())
                             }
                         }
                     }
                     return (reactions.reactions.filter({ $0.isPremium }).map { reaction -> AvailableReactions.Reaction in
                         var aroundAnimation = reaction.aroundAnimation
                         if let replacementFile = reactionOverrides[reaction.value] {
-                            aroundAnimation = replacementFile
+                            aroundAnimation = TelegramMediaFile.Accessor(replacementFile)
                         }
                         
                         return AvailableReactions.Reaction(
@@ -622,13 +622,13 @@ private final class DemoSheetContent: CombinedComponent {
                             isPremium: reaction.isPremium,
                             value: reaction.value,
                             title: reaction.title,
-                            staticIcon: reaction.staticIcon,
-                            appearAnimation: reaction.appearAnimation,
-                            selectAnimation: reaction.selectAnimation,
-                            activateAnimation: reaction.activateAnimation,
-                            effectAnimation: reaction.effectAnimation,
-                            aroundAnimation: aroundAnimation,
-                            centerAnimation: reaction.centerAnimation
+                            staticIcon: reaction.staticIcon._parse(),
+                            appearAnimation: reaction.appearAnimation._parse(),
+                            selectAnimation: reaction.selectAnimation._parse(),
+                            activateAnimation: reaction.activateAnimation._parse(),
+                            effectAnimation: reaction.effectAnimation._parse(),
+                            aroundAnimation: aroundAnimation?._parse(),
+                            centerAnimation: reaction.centerAnimation?._parse()
                         )
                     }, result.map { file -> TelegramMediaFile in
                         for attribute in file.attributes {
@@ -1098,6 +1098,26 @@ private final class DemoSheetContent: CombinedComponent {
                         )
                     )
                 )
+                                
+                availableItems[.todo] = DemoPagerComponent.Item(
+                    AnyComponentWithIdentity(
+                        id: PremiumDemoScreen.Subject.todo,
+                        component: AnyComponent(
+                            PageComponent(
+                                content: AnyComponent(PhoneDemoComponent(
+                                    context: component.context,
+                                    position: .top,
+                                    model: .island,
+                                    videoFile: configuration.videos["todo"],
+                                    decoration: .todo
+                                )),
+                                title: strings.Premium_Todo,
+                                text: strings.Premium_TodoInfo,
+                                textColor: textColor
+                            )
+                        )
+                    )
+                )
                 
                 let index: Int = 0
                 var items: [DemoPagerComponent.Item] = []
@@ -1195,6 +1215,8 @@ private final class DemoSheetContent: CombinedComponent {
                 text = strings.Premium_FolderTagsStandaloneInfo
             case .messageEffects:
                 text = strings.Premium_MessageEffectsInfo
+            case .todo:
+                text = strings.Premium_TodoInfo
             default:
                 text = ""
             }
@@ -1279,6 +1301,8 @@ private final class DemoSheetContent: CombinedComponent {
                         case .emojiStatus:
                             buttonText = strings.Premium_EmojiStatus_Proceed
                             buttonAnimationName = "premium_unlock"
+                        case .todo:
+                            buttonText = strings.Premium_PaidMessages_Proceed
                         default:
                             buttonText = strings.Common_OK
                     }
@@ -1468,6 +1492,7 @@ public class PremiumDemoScreen: ViewControllerComponentContainer {
         case business
         case folderTags
         case messageEffects
+        case todo
         
         case businessLocation
         case businessHours
@@ -1526,6 +1551,8 @@ public class PremiumDemoScreen: ViewControllerComponentContainer {
                 return .folderTags
             case .messageEffects:
                 return .messageEffects
+            case .todo:
+                return .todo
             case .businessLocation:
                 return .businessLocation
             case .businessHours:

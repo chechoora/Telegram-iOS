@@ -38,6 +38,7 @@ public final class OpenChatMessageParams {
     public let openUrl: (String) -> Void
     public let openPeer: (Peer, ChatControllerInteractionNavigateToPeer) -> Void
     public let callPeer: (PeerId, Bool) -> Void
+    public let openConferenceCall: (Message) -> Void
     public let enqueueMessage: (EnqueueMessage) -> Void
     public let sendSticker: ((FileMediaReference, UIView, CGRect) -> Bool)?
     public let sendEmoji: ((String, ChatTextInputTextCustomEmojiAttribute) -> Void)?
@@ -48,6 +49,7 @@ public final class OpenChatMessageParams {
     public let gallerySource: GalleryControllerItemSource?
     public let centralItemUpdated: ((MessageId) -> Void)?
     public let getSourceRect: (() -> CGRect?)?
+    public let blockInteraction: Promise<Bool>
     
     public init(
         context: AccountContext,
@@ -69,6 +71,7 @@ public final class OpenChatMessageParams {
         openUrl: @escaping (String) -> Void,
         openPeer: @escaping (Peer, ChatControllerInteractionNavigateToPeer) -> Void,
         callPeer: @escaping (PeerId, Bool) -> Void,
+        openConferenceCall: @escaping (Message) -> Void,
         enqueueMessage: @escaping (EnqueueMessage) -> Void,
         sendSticker: ((FileMediaReference, UIView, CGRect) -> Bool)?,
         sendEmoji: ((String, ChatTextInputTextCustomEmojiAttribute) -> Void)?,
@@ -99,6 +102,7 @@ public final class OpenChatMessageParams {
         self.openUrl = openUrl
         self.openPeer = openPeer
         self.callPeer = callPeer
+        self.openConferenceCall = openConferenceCall
         self.enqueueMessage = enqueueMessage
         self.sendSticker = sendSticker
         self.sendEmoji = sendEmoji
@@ -109,5 +113,6 @@ public final class OpenChatMessageParams {
         self.gallerySource = gallerySource
         self.centralItemUpdated = centralItemUpdated
         self.getSourceRect = getSourceRect
+        self.blockInteraction = Promise()
     }
 }

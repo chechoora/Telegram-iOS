@@ -1099,19 +1099,22 @@ open class InteractiveTextNode: ASDisplayNode, TextNodeProtocol, UIGestureRecogn
         public let spoilerEffectColor: UIColor
         public let areContentAnimationsEnabled: Bool
         public let spoilerExpandRect: CGRect?
+        public var crossfadeContents: ((UIView) -> Void)?
         
         public init(
             animation: ListViewItemUpdateAnimation,
             spoilerTextColor: UIColor,
             spoilerEffectColor: UIColor,
             areContentAnimationsEnabled: Bool,
-            spoilerExpandRect: CGRect?
+            spoilerExpandRect: CGRect?,
+            crossfadeContents: ((UIView) -> Void)? = nil
         ) {
             self.animation = animation
             self.spoilerTextColor = spoilerTextColor
             self.spoilerEffectColor = spoilerEffectColor
             self.areContentAnimationsEnabled = areContentAnimationsEnabled
             self.spoilerExpandRect = spoilerExpandRect
+            self.crossfadeContents = crossfadeContents
         }
     }
     
@@ -1158,7 +1161,7 @@ open class InteractiveTextNode: ASDisplayNode, TextNodeProtocol, UIGestureRecogn
     public func textRangeRects(in range: NSRange) -> (rects: [CGRect], start: TextRangeRectEdge, end: TextRangeRectEdge)? {
         return self.cachedLayout?.rangeRects(in: range)
     }
-    
+        
     override public init() {
         super.init()
         
@@ -1946,7 +1949,7 @@ open class InteractiveTextNode: ASDisplayNode, TextNodeProtocol, UIGestureRecogn
                 }
             } else {
                 contentItemAnimation = .None
-                contentItemLayer = TextContentItemLayer()
+                contentItemLayer = TextContentItemLayer(displaysAsynchronously: self.displaysAsynchronously)
                 self.contentItemLayers[contentItem.id] = contentItemLayer
                 self.layer.addSublayer(contentItemLayer)
             }
@@ -2461,8 +2464,9 @@ final class TextContentItemLayer: SimpleLayer {
     private var isAnimating: Bool = false
     private var currentContentMask: RenderMask?
     
-    override init() {
+    init(displaysAsynchronously: Bool) {
         self.renderNode = RenderNode()
+        self.renderNode.displaysAsynchronously = displaysAsynchronously
         
         super.init()
         

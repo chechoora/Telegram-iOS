@@ -132,15 +132,15 @@ private final class BlobView: UIView {
 }
 
 final class VideoChatParticipantAvatarComponent: Component {
-    let call: PresentationGroupCall
-    let peer: EnginePeer
+    let call: VideoChatCall
+    let peer: EnginePeer?
     let myPeerId: EnginePeer.Id
     let isSpeaking: Bool
     let theme: PresentationTheme
 
     init(
-        call: PresentationGroupCall,
-        peer: EnginePeer,
+        call: VideoChatCall,
+        peer: EnginePeer?,
         myPeerId: EnginePeer.Id,
         isSpeaking: Bool,
         theme: PresentationTheme
@@ -153,7 +153,7 @@ final class VideoChatParticipantAvatarComponent: Component {
     }
 
     static func ==(lhs: VideoChatParticipantAvatarComponent, rhs: VideoChatParticipantAvatarComponent) -> Bool {
-        if lhs.call !== rhs.call {
+        if lhs.call != rhs.call {
             return false
         }
         if lhs.peer != rhs.peer {
@@ -230,6 +230,11 @@ final class VideoChatParticipantAvatarComponent: Component {
             let previousComponent = self.component
             self.component = component
             
+            if let previousComponent, previousComponent.call != component.call {
+                self.audioLevelDisposable?.dispose()
+                self.audioLevelDisposable = nil
+            }
+            
             let avatarNode: AvatarNode
             if let current = self.avatarNode {
                 avatarNode = current
@@ -242,7 +247,7 @@ final class VideoChatParticipantAvatarComponent: Component {
             let avatarSize = availableSize
             
             let clipStyle: AvatarNodeClipStyle
-            if case let .channel(channel) = component.peer, channel.flags.contains(.isForum) {
+            if case let .channel(channel) = component.peer, channel.isForumOrMonoForum {
                 clipStyle = .roundedRect
             } else {
                 clipStyle = .round
@@ -262,7 +267,7 @@ final class VideoChatParticipantAvatarComponent: Component {
                 tintTransition.setTintColor(layer: blobView.blobsLayer, color: component.isSpeaking ? UIColor(rgb: 0x33C758) : component.theme.list.itemAccentColor)
             }
             
-            if component.peer.smallProfileImage != nil {
+            if component.peer?.smallProfileImage != nil {
                 avatarNode.setPeerV2(
                     context: component.call.accountContext,
                     theme: component.theme,
@@ -291,7 +296,7 @@ final class VideoChatParticipantAvatarComponent: Component {
                     var isSpeaking: Bool
                 }
                 
-                let peerId = component.peer.id
+                let peerId = component.peer?.id
                 let levelSignal: Signal<Level?, NoError>
                 if peerId == component.myPeerId {
                     levelSignal = component.call.myAudioLevelAndSpeaking

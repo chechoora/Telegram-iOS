@@ -46,7 +46,7 @@ public func confirmStarsRevenueWithdrawalController(context: AccountContext, upd
         }
         contentNode.updateIsChecking(true)
         
-        let signal = context.engine.peers.requestStarsRevenueWithdrawalUrl(peerId: peerId, amount: amount, password: contentNode.password)
+        let signal = context.engine.peers.requestStarsRevenueWithdrawalUrl(peerId: peerId, ton: false, amount: amount, password: contentNode.password)
         disposable.set((signal |> deliverOnMainQueue).start(next: { url in
             dismissImpl?()
             completion(url)
@@ -71,7 +71,6 @@ public func confirmStarsRevenueWithdrawalController(context: AccountContext, upd
     
     return controller
 }
-
 
 public func starsRevenueWithdrawalController(context: AccountContext, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil, peerId: EnginePeer.Id, amount: Int64, initialError: RequestStarsRevenueWithdrawalError, present: @escaping (ViewController, Any?) -> Void, completion: @escaping (String) -> Void) -> ViewController {
     let presentationData = updatedPresentationData?.initial ?? context.sharedContext.currentPresentationData.with { $0 }

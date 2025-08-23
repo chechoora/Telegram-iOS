@@ -655,6 +655,22 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                             convertedUrl = "https://t.me/addtheme/\(parameter)"
                         }
                     }
+                } else if parsedUrl.host == "nft" {
+                    if let components = URLComponents(string: "/?" + query) {
+                        var slug: String?
+                        if let queryItems = components.queryItems {
+                            for queryItem in queryItems {
+                                if let value = queryItem.value {
+                                    if queryItem.name == "slug" {
+                                        slug = value
+                                    }
+                                }
+                            }
+                        }
+                        if let slug {
+                            convertedUrl = "https://t.me/nft/\(slug)"
+                        }
+                    }
                 } else if parsedUrl.host == "privatepost" {
                     if let components = URLComponents(string: "/?" + query) {
                         var channelId: Int64?
@@ -739,6 +755,7 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                         var text: String?
                         var profile: Bool = false
                         var referrer: String?
+                        var albumId: Int64?
                         if let queryItems = components.queryItems {
                             for queryItem in queryItems {
                                 if let value = queryItem.value {
@@ -774,6 +791,8 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                                         text = value
                                     } else if queryItem.name == "ref" {
                                         referrer = value
+                                    } else if queryItem.name == "album" {
+                                        albumId = Int64(value)
                                     }
                                 } else if ["voicechat", "videochat", "livestream"].contains(queryItem.name) {
                                     voiceChat = ""
@@ -845,6 +864,8 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                                 }
                             } else if let attach = attach {
                                 result += "?attach=\(attach)"
+                            } else if let albumId {
+                                result += "/a/\(albumId)"
                             }
                             if let startAttach = startAttach {
                                 if attach == nil {
@@ -982,9 +1003,42 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                             convertedUrl = "https://t.me/c/\(channel)?boost"
                         }
                     }
+                } else if parsedUrl.host == "call" {
+                    if let components = URLComponents(string: "/?" + query) {
+                        var slug: String?
+                        if let queryItems = components.queryItems {
+                            for queryItem in queryItems {
+                                if let value = queryItem.value {
+                                    if queryItem.name == "slug" {
+                                        slug = value
+                                    }
+                                }
+                            }
+                        }
+                        if let slug = slug {
+                            convertedUrl = "https://t.me/call/\(slug)"
+                        }
+                    }
+                } else if parsedUrl.host == "shareStory" {
+                    if let components = URLComponents(string: "/?" + query) {
+                        if let queryItems = components.queryItems {
+                            for queryItem in queryItems {
+                                if let value = queryItem.value {
+                                    if queryItem.name == "session", let sessionId = Int64(value) {
+                                        handleResolvedUrl(.shareStory(sessionId))
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
-                if parsedUrl.host == "importStickers" {
+                if parsedUrl.host == "stars" {
+                    handleResolvedUrl(.stars)
+                } else if parsedUrl.host == "ton" {
+                    handleResolvedUrl(.ton)
+                } else if parsedUrl.host == "importStickers" {
                     handleResolvedUrl(.importStickers)
                 } else if parsedUrl.host == "settings" {
                     if let path = parsedUrl.pathComponents.last {
@@ -998,6 +1052,8 @@ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, ur
                             section = .twoStepAuth
                         case "enable_log":
                             section = .enableLog
+                        case "phone_privacy":
+                            section = .phonePrivacy
                         default:
                             break
                         }

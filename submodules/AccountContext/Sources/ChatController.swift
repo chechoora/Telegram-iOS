@@ -48,6 +48,7 @@ public final class ChatMessageItemAssociatedData: Equatable {
     public let availableMessageEffects: AvailableMessageEffects?
     public let savedMessageTags: SavedMessageTags?
     public let defaultReaction: MessageReaction.Reaction?
+    public let areStarReactionsEnabled: Bool
     public let isPremium: Bool
     public let forceInlineReactions: Bool
     public let alwaysDisplayTranscribeButton: DisplayTranscribeButton
@@ -63,6 +64,7 @@ public final class ChatMessageItemAssociatedData: Equatable {
     public let isStandalone: Bool
     public let isInline: Bool
     public let showSensitiveContent: Bool
+    public let isSuspiciousPeer: Bool
     
     public init(
         automaticDownloadPeerType: MediaAutoDownloadPeerType,
@@ -82,6 +84,7 @@ public final class ChatMessageItemAssociatedData: Equatable {
         availableMessageEffects: AvailableMessageEffects?,
         savedMessageTags: SavedMessageTags?,
         defaultReaction: MessageReaction.Reaction?,
+        areStarReactionsEnabled: Bool,
         isPremium: Bool,
         accountPeer: EnginePeer?,
         forceInlineReactions: Bool = false,
@@ -96,7 +99,8 @@ public final class ChatMessageItemAssociatedData: Equatable {
         deviceContactsNumbers: Set<String> = Set(),
         isStandalone: Bool = false,
         isInline: Bool = false,
-        showSensitiveContent: Bool = false
+        showSensitiveContent: Bool = false,
+        isSuspiciousPeer: Bool = false
     ) {
         self.automaticDownloadPeerType = automaticDownloadPeerType
         self.automaticDownloadPeerId = automaticDownloadPeerId
@@ -115,6 +119,7 @@ public final class ChatMessageItemAssociatedData: Equatable {
         self.availableMessageEffects = availableMessageEffects
         self.savedMessageTags = savedMessageTags
         self.defaultReaction = defaultReaction
+        self.areStarReactionsEnabled = areStarReactionsEnabled
         self.isPremium = isPremium
         self.accountPeer = accountPeer
         self.forceInlineReactions = forceInlineReactions
@@ -130,6 +135,7 @@ public final class ChatMessageItemAssociatedData: Equatable {
         self.isStandalone = isStandalone
         self.isInline = isInline
         self.showSensitiveContent = showSensitiveContent
+        self.isSuspiciousPeer = isSuspiciousPeer
     }
     
     public static func == (lhs: ChatMessageItemAssociatedData, rhs: ChatMessageItemAssociatedData) -> Bool {
@@ -223,6 +229,9 @@ public final class ChatMessageItemAssociatedData: Equatable {
         if lhs.showSensitiveContent != rhs.showSensitiveContent {
             return false
         }
+        if lhs.isSuspiciousPeer != rhs.isSuspiciousPeer {
+            return false
+        }
         return true
     }
 }
@@ -314,10 +323,12 @@ public struct ChatControllerInitialBotAppStart {
 public enum ChatControllerInteractionNavigateToPeer {
     public struct InfoParams {
         public let switchToRecommendedChannels: Bool
+        public let switchToGroupsInCommon: Bool
         public let ignoreInSavedMessages: Bool
         
-        public init(switchToRecommendedChannels: Bool = false, ignoreInSavedMessages: Bool = false) {
+        public init(switchToRecommendedChannels: Bool = false, switchToGroupsInCommon: Bool = false, ignoreInSavedMessages: Bool = false) {
             self.switchToRecommendedChannels = switchToRecommendedChannels
+            self.switchToGroupsInCommon = switchToGroupsInCommon
             self.ignoreInSavedMessages = ignoreInSavedMessages
         }
     }
@@ -606,7 +617,7 @@ public struct ChatTextInputStateText: Codable, Equatable {
         return lhs.text == rhs.text && lhs.attributes == rhs.attributes
     }
     
-    public func attributedText() -> NSAttributedString {
+    public func attributedText(files: [Int64: TelegramMediaFile] = [:]) -> NSAttributedString {
         let result = NSMutableAttributedString(string: self.text)
         for attribute in self.attributes {
             switch attribute.type {
@@ -621,7 +632,7 @@ public struct ChatTextInputStateText: Codable, Equatable {
             case let .textUrl(url):
                 result.addAttribute(ChatTextInputAttributes.textUrl, value: ChatTextInputTextUrlAttribute(url: url), range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
             case let .customEmoji(_, fileId, enableAnimation):
-                result.addAttribute(ChatTextInputAttributes.customEmoji, value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: fileId, file: nil, enableAnimation: enableAnimation), range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
+                result.addAttribute(ChatTextInputAttributes.customEmoji, value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: fileId, file: files[fileId], enableAnimation: enableAnimation), range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
             case .strikethrough:
                 result.addAttribute(ChatTextInputAttributes.strikethrough, value: true as NSNumber, range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
             case .underline:
@@ -776,9 +787,11 @@ public enum ChatControllerSubject: Equatable {
         }
         
         public var quote: Quote?
+        public var todoTaskId: Int32?
         
-        public init(quote: Quote? = nil) {
+        public init(quote: Quote? = nil, todoTaskId: Int32? = nil) {
             self.quote = quote
+            self.todoTaskId = todoTaskId
         }
     }
     
@@ -947,10 +960,17 @@ public let ChatControllerCount = Atomic<Int32>(value: 0)
 
 public final class PeerInfoNavigationSourceTag {
     public let peerId: EnginePeer.Id
+    public let threadId: Int64?
     
-    public init(peerId: EnginePeer.Id) {
+    public init(peerId: EnginePeer.Id, threadId: Int64?) {
         self.peerId = peerId
+        self.threadId = threadId
     }
+}
+
+public enum PeerInfoAvatarUploadStatus {
+    case progress(Float)
+    case done
 }
 
 public protocol PeerInfoScreen: ViewController {
@@ -961,7 +981,8 @@ public protocol PeerInfoScreen: ViewController {
     func toggleStorySelection(ids: [Int32], isSelected: Bool)
     func togglePaneIsReordering(isReordering: Bool)
     func cancelItemSelection()
-    func openAvatarSetup()
+    func openAvatarSetup(completedWithUploadingImage: @escaping (UIImage, Signal<PeerInfoAvatarUploadStatus, NoError>) -> UIView?)
+    func openAvatars()
 }
 
 public extension Peer {
@@ -1008,13 +1029,20 @@ public protocol ChatControllerCustomNavigationPanelNode: ASDisplayNode {
     func updateLayout(width: CGFloat, leftInset: CGFloat, rightInset: CGFloat, transition: ContainedViewLayoutTransition, chatController: ChatController) -> LayoutResult
 }
 
+public enum ChatControllerAnimateInnerChatSwitchDirection {
+    case up
+    case down
+    case left
+    case right
+}
+
 public protocol ChatController: ViewController {
     var chatLocation: ChatLocation { get }
     var canReadHistory: ValuePromise<Bool> { get }
     var parentController: ViewController? { get set }
     var customNavigationController: NavigationController? { get set }
     
-    var dismissPreviewing: (() -> Void)? { get set }
+    var dismissPreviewing: ((Bool) -> (() -> Void))? { get set }
     var purposefulAction: (() -> Void)? { get set }
     
     var stateUpdated: ((ContainedViewLayoutTransition) -> Void)? { get set }

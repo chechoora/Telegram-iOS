@@ -33,6 +33,15 @@ private final class TonSchemeHandler: NSObject, WKURLSchemeHandler {
         init(proxyServerHost: String, sourceTask: any WKURLSchemeTask) {
             self.sourceTask = sourceTask
             
+            final class BoxedSourceTask: @unchecked Sendable {
+                let value: any WKURLSchemeTask
+                
+                init(value: any WKURLSchemeTask) {
+                    self.value = value
+                }
+            }
+            let sourceTaskReference = BoxedSourceTask(value: sourceTask)
+            
             let requestUrl = sourceTask.request.url
             
             var mappedHost: String = ""
@@ -57,7 +66,7 @@ private final class TonSchemeHandler: NSObject, WKURLSchemeHandler {
                 }
                 
                 if let error {
-                    sourceTask.didFailWithError(error)
+                    sourceTaskReference.value.didFailWithError(error)
                 } else {
                     if let response {
                         if let response = response as? HTTPURLResponse, let requestUrl {
@@ -67,18 +76,18 @@ private final class TonSchemeHandler: NSObject, WKURLSchemeHandler {
                                 httpVersion: "HTTP/1.1",
                                 headerFields: response.allHeaderFields as? [String: String] ?? [:]
                             ) {
-                                sourceTask.didReceive(updatedResponse)
+                                sourceTaskReference.value.didReceive(updatedResponse)
                             } else {
-                                sourceTask.didReceive(response)
+                                sourceTaskReference.value.didReceive(response)
                             }
                         } else {
-                            sourceTask.didReceive(response)
+                            sourceTaskReference.value.didReceive(response)
                         }
                     }
                     if let data {
-                        sourceTask.didReceive(data)
+                        sourceTaskReference.value.didReceive(data)
                     }
-                    sourceTask.didFinish()
+                    sourceTaskReference.value.didFinish()
                 }
             })
             self.urlSessionTask?.resume()
@@ -639,7 +648,7 @@ final class BrowserWebContent: UIView, BrowserContent, WKNavigationDelegate, WKU
         } else {
             self.webView.customBottomInset = safeInsets.bottom * (1.0 - insets.bottom / fullInsets.bottom)
         }
-//        self.webView.scrollView.scrollIndicatorInsets = UIEdgeInsets(top: 0.0, left: -insets.left, bottom: 0.0, right: -insets.right)
+//        self.webView.scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: 0.0, left: -insets.left, bottom: 0.0, right: -insets.right)
 //        self.webView.scrollView.horizontalScrollIndicatorInsets = UIEdgeInsets(top: 0.0, left: -insets.left, bottom: 0.0, right: -insets.right)
         
         if let error = self.currentError {
@@ -1023,7 +1032,7 @@ final class BrowserWebContent: UIView, BrowserContent, WKNavigationDelegate, WKU
                                 }
                                 self.instantPage = webPage
                                 self.instantPageResources = resources
-                                let _ = (updatedRemoteWebpage(postbox: self.context.account.postbox, network: self.context.account.network, accountPeerId: self.context.account.peerId, webPage: WebpageReference(TelegramMediaWebpage(webpageId: MediaId(namespace: 0, id: 0), content: .Loaded(TelegramMediaWebpageLoadedContent(url: self._state.url, displayUrl: "", hash: 0, type: nil, websiteName: nil, title: nil, text: nil, embedUrl: nil, embedType: nil, embedSize: nil, duration: nil, author: nil, isMediaLargeByDefault: nil, image: nil, file: nil, story: nil, attributes: [], instantPage: nil)))))
+                                let _ = (updatedRemoteWebpage(postbox: self.context.account.postbox, network: self.context.account.network, accountPeerId: self.context.account.peerId, webPage: WebpageReference(TelegramMediaWebpage(webpageId: MediaId(namespace: 0, id: 0), content: .Loaded(TelegramMediaWebpageLoadedContent(url: self._state.url, displayUrl: "", hash: 0, type: nil, websiteName: nil, title: nil, text: nil, embedUrl: nil, embedType: nil, embedSize: nil, duration: nil, author: nil, isMediaLargeByDefault: nil, imageIsVideoCover: false, image: nil, file: nil, story: nil, attributes: [], instantPage: nil)))))
                                 |> deliverOnMainQueue).start(next: { [weak self] webPage in
                                     guard let self, let webPage, case let .Loaded(result) = webPage.content, let _ = result.instantPage else {
                                         return
@@ -1518,6 +1527,7 @@ final class BrowserWebContent: UIView, BrowserContent, WKNavigationDelegate, WKU
                             duration: nil,
                             author: nil,
                             isMediaLargeByDefault: nil,
+                            imageIsVideoCover: false,
                             image: image,
                             file: nil,
                             story: nil,
@@ -1721,10 +1731,10 @@ function tgBrowserHandleMutations(mutations) {
     if (mutation.addedNodes && mutation.addedNodes.length > 0) {
       mutation.addedNodes.forEach((newNode) => {
         if (newNode.tagName === 'VIDEO') {
-          disableWebkitEnterFullscreen(newNode);
+          tgBrowserDisableWebkitEnterFullscreen(newNode);
         }
         if (newNode.querySelectorAll) {
-          newNode.querySelectorAll('video').forEach(disableWebkitEnterFullscreen);
+          newNode.querySelectorAll('video').forEach(tgBrowserDisableWebkitEnterFullscreen);
         }
       });
     }

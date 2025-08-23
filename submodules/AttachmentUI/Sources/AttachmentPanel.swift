@@ -195,6 +195,9 @@ private final class AttachButtonComponent: CombinedComponent {
             case .location:
                 name = strings.Attachment_Location
                 imageName = "Chat/Attach Menu/Location"
+            case .todo:
+                name = strings.Attachment_Todo
+                imageName = "Chat/Attach Menu/Todo"
             case .contact:
                 name = strings.Attachment_Contact
                 imageName = "Chat/Attach Menu/Contact"
@@ -476,6 +479,7 @@ private final class MainButtonNode: HighlightTrackingButtonNode {
     private var size: CGSize?
     
     private let backgroundAnimationNode: ASImageNode
+    private var iconNode: ASImageNode?
     fileprivate let textNode: ImmediateTextNode
     private var badgeNode: BadgeNode?
     private let statusNode: SemanticStatusNode
@@ -781,6 +785,26 @@ private final class MainButtonNode: HighlightTrackingButtonNode {
             badgeNode.removeFromSupernode()
         }
         
+        if let iconName = state.iconName {
+            let iconNode: ASImageNode
+            if let current = self.iconNode {
+                iconNode = current
+            } else {
+                iconNode = ASImageNode()
+                iconNode.displaysAsynchronously = false
+                iconNode.image = generateTintedImage(image: UIImage(bundleImageName: iconName), color: state.textColor)
+                self.iconNode = iconNode
+                self.addSubnode(iconNode)
+            }
+            if let iconSize = iconNode.image?.size {
+                textFrame.origin.x += (iconSize.width + 6.0) / 2.0
+                iconNode.frame = CGRect(origin: CGPoint(x: textFrame.minX - iconSize.width - 6.0, y: textFrame.minY + floorToScreenPixels((textFrame.height - iconSize.height) * 0.5)), size: iconSize)
+            }
+        } else if let iconNode = self.iconNode {
+            self.iconNode = nil
+            iconNode.removeFromSupernode()
+        }
+        
         if self.textNode.frame.width.isZero {
             self.textNode.frame = textFrame
         } else {
@@ -795,7 +819,7 @@ private final class MainButtonNode: HighlightTrackingButtonNode {
                 self.transitionFromProgress()
             }
         }
-        
+                
         if let shimmerView = self.shimmerView, let borderView = self.borderView, let borderMaskView = self.borderMaskView, let borderShimmerView = self.borderShimmerView {
             let buttonFrame = CGRect(origin: .zero, size: size)
             let buttonWidth = size.width
@@ -813,7 +837,7 @@ private final class MainButtonNode: HighlightTrackingButtonNode {
         transition.updateFrame(node: self.statusNode, frame: CGRect(origin: CGPoint(x: size.width - statusSize.width - 15.0, y: floorToScreenPixels((size.height - statusSize.height) / 2.0)), size: statusSize))
         
         self.statusNode.foregroundNodeColor = state.textColor
-        self.statusNode.transitionToState(state.progress == .side ? .progress(value: nil, cancelEnabled: false, appearance: SemanticStatusNodeState.ProgressAppearance(inset: 0.0, lineWidth: 2.0)) : .none)
+        self.statusNode.transitionToState(state.progress == .side ? .progress(value: nil, cancelEnabled: false, appearance: SemanticStatusNodeState.ProgressAppearance(inset: 0.0, lineWidth: 2.0), animateRotation: true) : .none)
     }
 }
 
@@ -824,6 +848,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
     private var presentationData: PresentationData
     private var updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)?
     private var presentationDataDisposable: Disposable?
+    private var peerDisposable: Disposable?
     
     private var iconDisposables: [MediaId: Disposable] = [:]
     
@@ -852,6 +877,8 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
     private var buttons: [AttachmentButtonType] = []
     private var selectedIndex: Int = 0
     private(set) var isSelecting: Bool = false
+    private var selectionCount: Int = 0
+    
     private var _isButtonVisible: Bool = false
     var isButtonVisible: Bool {
         return self.mainButtonState.isVisible || self.secondaryButtonState.isVisible
@@ -914,7 +941,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
         self.mainButtonNode.addTarget(self, action: #selector(self.mainButtonPressed), forControlEvents: .touchUpInside)
         self.secondaryButtonNode.addTarget(self, action: #selector(self.secondaryButtonPressed), forControlEvents: .touchUpInside)
         
-        self.interfaceInteraction = ChatPanelInterfaceInteraction(setupReplyMessage: { _, _  in
+        self.interfaceInteraction = ChatPanelInterfaceInteraction(setupReplyMessage: { _, _, _  in
         }, setupEditMessage: { _, _ in
         }, beginMessageSelection: { _, _ in
         }, cancelMessageSelection: { _ in
@@ -934,6 +961,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
         }, presentForwardOptions: { _ in
         }, presentReplyOptions: { _ in
         }, presentLinkOptions: { _ in
+        }, presentSuggestPostOptions: {
         }, shareSelectedMessages: {
         }, updateTextInputStateAndMode: { [weak self] f in
             if let strongSelf = self {
@@ -1061,7 +1089,6 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                 })
                 strongSelf.present(controller)
             }
-        }, reportPeerIrrelevantGeoLocation: {
         }, displaySlowmodeTooltip: { _, _ in
         }, displaySendMessageOptions: { [weak self] node, gesture in
             guard let strongSelf = self, let textInputPanelNode = strongSelf.textInputPanelNode else {
@@ -1167,7 +1194,9 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                             forwardMessageIds: strongSelf.presentationInterfaceState.interfaceState.forwardMessageIds ?? [],
                             canMakePaidContent: canMakePaidContent,
                             currentPrice: currentPrice,
-                            hasTimers: hasTimers
+                            hasTimers: hasTimers,
+                            sendPaidMessageStars: strongSelf.presentationInterfaceState.sendPaidMessageStars,
+                            isMonoforum: strongSelf.presentationInterfaceState.renderedPeer?.peer?.isMonoForum ?? false
                         )),
                         hasEntityKeyboard: hasEntityKeyboard,
                         gesture: gesture,
@@ -1218,6 +1247,7 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
         }, joinGroupCall: { _ in
         }, presentInviteMembers: {
         }, presentGigagroupHelp: {
+        }, openMonoforum: {
         }, editMessageMedia: { _, _ in
         }, updateShowCommands: { _ in
         }, updateShowSendAsPeers: { _ in
@@ -1235,10 +1265,17 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
         }, addDoNotTranslateLanguage: { _ in
         }, hideTranslationPanel: {
         }, openPremiumGift: {
+        }, openSuggestPost: { _, _ in
         }, openPremiumRequiredForMessaging: {
+        }, openStarsPurchase: { _ in
+        }, openMessagePayment: {
         }, openBoostToUnrestrict: {
-        }, updateVideoTrimRange: { _, _, _, _ in
+        }, updateRecordingTrimRange: { _, _, _, _ in
+        }, dismissAllTooltips: {  
+        }, editTodoMessage: { _, _, _ in
         }, updateHistoryFilter: { _ in
+        }, updateChatLocationThread: { _, _ in
+        }, toggleChatSidebarMode: {
         }, updateDisplayHistoryFilterAsList: { _ in
         }, requestLayout: { _ in
         }, chatController: {
@@ -1256,14 +1293,41 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                 strongSelf.updateChatPresentationInterfaceState({ $0.updatedTheme(presentationData.theme) })
             
                 if let layout = strongSelf.validLayout {
-                    let _ = strongSelf.update(layout: layout, buttons: strongSelf.buttons, isSelecting: strongSelf.isSelecting, elevateProgress: strongSelf.elevateProgress, transition: .immediate)
+                    let _ = strongSelf.update(layout: layout, buttons: strongSelf.buttons, isSelecting: strongSelf.isSelecting, selectionCount: strongSelf.selectionCount, elevateProgress: strongSelf.elevateProgress, transition: .immediate)
                 }
             }
         }).strict()
+        
+        if let peerId = chatLocation?.peerId {
+            self.peerDisposable = ((self.context.account.viewTracker.peerView(peerId)
+            |> map { view -> StarsAmount? in
+                if let data = view.cachedData as? CachedUserData {
+                    return data.sendPaidMessageStars
+                } else if let channel = peerViewMainPeer(view) as? TelegramChannel {
+                    if channel.isMonoForum, let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = view.peers[linkedMonoforumId] as? TelegramChannel, mainChannel.hasPermission(.manageDirect) {
+                        return nil
+                    } else if let cachedData = view.cachedData as? CachedChannelData, let sendPaidMessageStarsValue = cachedData.sendPaidMessageStars, sendPaidMessageStarsValue == .zero {
+                        return nil
+                    } else {
+                        return channel.sendPaidMessageStars
+                    }
+                } else {
+                    return nil
+                }
+            }
+            |> distinctUntilChanged
+            |> deliverOnMainQueue).start(next: { [weak self] amount in
+                guard let self else {
+                    return
+                }
+                self.updateChatPresentationInterfaceState({ $0.updatedSendPaidMessageStars(amount) })
+            }))
+        }
     }
     
     deinit {
         self.presentationDataDisposable?.dispose()
+        self.peerDisposable?.dispose()
         for (_, disposable) in self.iconDisposables {
             disposable.dispose()
         }
@@ -1306,16 +1370,19 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
         self.updateChatPresentationInterfaceState(transition: animated ? .animated(duration: 0.4, curve: .spring) : .immediate, f, completion: completion)
     }
     
-    private func updateChatPresentationInterfaceState(transition: ContainedViewLayoutTransition, _ f: (ChatPresentationInterfaceState) -> ChatPresentationInterfaceState, completion externalCompletion: @escaping (ContainedViewLayoutTransition) -> Void = { _ in }) {
+    private func updateChatPresentationInterfaceState(update: Bool = true, transition: ContainedViewLayoutTransition, _ f: (ChatPresentationInterfaceState) -> ChatPresentationInterfaceState, completion externalCompletion: @escaping (ContainedViewLayoutTransition) -> Void = { _ in }) {
         let presentationInterfaceState = f(self.presentationInterfaceState)
+        
         let updateInputTextState = self.presentationInterfaceState.interfaceState.effectiveInputState != presentationInterfaceState.interfaceState.effectiveInputState
         
         self.presentationInterfaceState = presentationInterfaceState
         
-        if let textInputPanelNode = self.textInputPanelNode, updateInputTextState {
-            textInputPanelNode.updateInputTextState(presentationInterfaceState.interfaceState.effectiveInputState, animated: transition.isAnimated)
-
-            self.textUpdated(presentationInterfaceState.interfaceState.effectiveInputState.inputText)
+        if update {
+            if let textInputPanelNode = self.textInputPanelNode, updateInputTextState {
+                textInputPanelNode.updateInputTextState(presentationInterfaceState.interfaceState.effectiveInputState, animated: transition.isAnimated)
+                
+                self.textUpdated(presentationInterfaceState.interfaceState.effectiveInputState.inputText)
+            }
         }
     }
     
@@ -1431,6 +1498,8 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                 accessibilityTitle = self.presentationData.strings.Attachment_File
             case .location:
                 accessibilityTitle = self.presentationData.strings.Attachment_Location
+            case .todo:
+                accessibilityTitle = self.presentationData.strings.Attachment_Todo
             case .contact:
                 accessibilityTitle = self.presentationData.strings.Attachment_Contact
             case .poll:
@@ -1670,10 +1739,23 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
         }
     }
     
-    func update(layout: ContainerViewLayout, buttons: [AttachmentButtonType], isSelecting: Bool, elevateProgress: Bool, transition: ContainedViewLayoutTransition) -> CGFloat {
+    func update(layout: ContainerViewLayout, buttons: [AttachmentButtonType], isSelecting: Bool, selectionCount: Int, elevateProgress: Bool, transition: ContainedViewLayoutTransition) -> CGFloat {
         self.validLayout = layout
         self.buttons = buttons
         self.elevateProgress = elevateProgress
+        
+        if selectionCount != self.selectionCount {
+            self.selectionCount = selectionCount
+            self.updateChatPresentationInterfaceState(update: false, transition: .immediate, { state in
+                var selectedMessages: [EngineMessage.Id] = []
+                for i in 0 ..< selectionCount {
+                    selectedMessages.append(EngineMessage.Id(peerId: PeerId(0), namespace: Namespaces.Message.Local, id: Int32(i)))
+                }
+                return state.updatedInterfaceState { state in
+                    return state.withUpdatedForwardMessageIds(selectedMessages)
+                }
+            })
+        }
                 
         let isButtonVisibleUpdated = self._isButtonVisible != self.mainButtonState.isVisible
         self._isButtonVisible = self.mainButtonState.isVisible
@@ -1743,7 +1825,9 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
             } else {
                 height = bounds.height + 8.0
             }
-            if !isNarrowButton {
+            if isTwoVerticalButtons && self.secondaryButtonState.smallSpacing {
+                
+            } else if !isNarrowButton {
                 height += 9.0
             }
             if isTwoVerticalButtons {
@@ -1833,7 +1917,8 @@ final class AttachmentPanel: ASDisplayNode, ASScrollViewDelegate {
                     mainButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY + sideInset + buttonSize.height), size: buttonSize)
                 case .bottom:
                     mainButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY), size: buttonSize)
-                    secondaryButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY + sideInset + buttonSize.height), size: buttonSize)
+                    let buttonSpacing = self.secondaryButtonState.smallSpacing ? 8.0 : sideInset
+                    secondaryButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY + buttonSpacing + buttonSize.height), size: buttonSize)
                 case .left:
                     secondaryButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX, y: buttonOriginY), size: buttonSize)
                     mainButtonFrame = CGRect(origin: CGPoint(x: buttonOriginX + buttonSize.width + sideInset, y: buttonOriginY), size: buttonSize)

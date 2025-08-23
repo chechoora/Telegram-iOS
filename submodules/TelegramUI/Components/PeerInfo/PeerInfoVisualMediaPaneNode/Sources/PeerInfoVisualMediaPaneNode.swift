@@ -1,5 +1,6 @@
 import AsyncDisplayKit
 import AVFoundation
+import UIKit
 import Display
 import TelegramCore
 import SwiftSignalKit
@@ -883,7 +884,11 @@ private final class SparseItemGridBindingImpl: SparseItemGridBinding, ListShimme
                         selectedMedia = image
                         break
                     } else if let file = media as? TelegramMediaFile {
-                        selectedMedia = file
+                        if let cover = file.videoCover {
+                            selectedMedia = cover
+                        } else {
+                            selectedMedia = file
+                        }
                         break
                     }
                 }

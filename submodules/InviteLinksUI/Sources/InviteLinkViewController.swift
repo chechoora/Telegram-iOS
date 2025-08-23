@@ -271,6 +271,7 @@ private enum InviteLinkViewEntry: Comparable, Identifiable {
                 }, contextAction: invite.link?.hasSuffix("...") == true ? nil : { node, gesture in
                     interaction.contextAction(invite, node, gesture)
                 }, viewAction: {
+                }, openCallAction: {
                 })
             case let .subscriptionHeader(_, title):
                 return SectionHeaderItem(presentationData: ItemListPresentationData(presentationData), title: title)
@@ -538,7 +539,7 @@ public final class InviteLinkViewController: ViewController {
             self.headerNode.clipsToBounds = true
             
             self.headerBackgroundNode = ASDisplayNode()
-            self.headerBackgroundNode.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
+            self.headerBackgroundNode.backgroundColor = self.presentationData.theme.actionSheet.opaqueItemBackgroundColor
             self.headerBackgroundNode.cornerRadius = 16.0
             
             self.titleNode = ImmediateTextNode()
@@ -594,10 +595,7 @@ public final class InviteLinkViewController: ViewController {
                     guard let peer else {
                         return
                     }
-                    var usdRate = 0.012
-                    if let usdWithdrawRate = configuration.usdWithdrawRate {
-                        usdRate = Double(usdWithdrawRate) / 1000.0 / 100.0
-                    }
+                    let usdRate = Double(configuration.usdWithdrawRate) / 1000.0 / 100.0
                     let subscriptionController = context.sharedContext.makeStarsSubscriptionScreen(context: context, peer: peer, pricing: pricing, importer: importer, usdRate: usdRate)
                     self?.controller?.push(subscriptionController)
                 })
@@ -757,7 +755,7 @@ public final class InviteLinkViewController: ViewController {
                                         isGroup = true
                                     }
                                     let updatedPresentationData = (strongSelf.presentationData, parentController.presentationDataPromise.get())
-                                    strongSelf.controller?.present(QrCodeScreen(context: context, updatedPresentationData: updatedPresentationData, subject: .invite(invite: invite, isGroup: isGroup)), in: .window(.root))
+                                    strongSelf.controller?.present(QrCodeScreen(context: context, updatedPresentationData: updatedPresentationData, subject: .invite(invite: invite, type: isGroup ? .group : .channel)), in: .window(.root))
                                 })
                             })))
                         }
@@ -834,11 +832,8 @@ public final class InviteLinkViewController: ViewController {
                     context.account.postbox.loadedPeerWithId(adminId)
                 ) |> deliverOnMainQueue).start(next: { [weak self] presentationData, state, requestsState, creatorPeer in
                     if let strongSelf = self {
-                        var usdRate = 0.012
-                        if let usdWithdrawRate = configuration.usdWithdrawRate {
-                            usdRate = Double(usdWithdrawRate) / 1000.0 / 100.0
-                        }
-                                                                        
+                        let usdRate = Double(configuration.usdWithdrawRate) / 1000.0 / 100.0
+             
                         var entries: [InviteLinkViewEntry] = []
                         
                         entries.append(.link(presentationData.theme, invite))
@@ -1031,8 +1026,8 @@ public final class InviteLinkViewController: ViewController {
             self.presentationData = presentationData
             self.presentationDataPromise.set(.single(presentationData))
             
-            self.historyBackgroundContentNode.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
-            self.headerBackgroundNode.backgroundColor = self.presentationData.theme.list.plainBackgroundColor
+            self.historyBackgroundContentNode.backgroundColor = self.presentationData.theme.actionSheet.opaqueItemBackgroundColor
+            self.headerBackgroundNode.backgroundColor = self.presentationData.theme.actionSheet.opaqueItemBackgroundColor
             self.titleNode.attributedText = NSAttributedString(string: self.titleNode.attributedText?.string ?? "", font: titleFont, textColor: self.presentationData.theme.actionSheet.primaryTextColor)
             self.subtitleNode.attributedText = NSAttributedString(string: self.subtitleNode.attributedText?.string ?? "", font: subtitleFont, textColor: self.presentationData.theme.list.itemSecondaryTextColor)
             

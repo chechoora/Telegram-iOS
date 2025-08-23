@@ -109,12 +109,19 @@ func _internal_peerSendAsAvailablePeers(accountPeerId: PeerId, network: Network,
             return .single([])
         }
         
-        if let _ = peer as? TelegramChannel {
+        if let channel = peer as? TelegramChannel {
+            if case .group = channel.info {
+                
+            } else if channel.adminRights != nil || channel.flags.contains(.isCreator) {
+                
+            } else {
+                return .single([])
+            }
         } else {
             return .single([])
         }
         
-        return network.request(Api.functions.channels.getSendAs(peer: inputPeer))
+        return network.request(Api.functions.channels.getSendAs(flags: 0, peer: inputPeer))
         |> map(Optional.init)
         |> `catch` { _ -> Signal<Api.channels.SendAsPeers?, NoError> in
             return .single(nil)
@@ -138,7 +145,7 @@ func _internal_peerSendAsAvailablePeers(accountPeerId: PeerId, network: Network,
                     for chat in chats {
                         if let groupOrChannel = parsedPeers.get(chat.peerId) {
                             switch chat {
-                            case let .channel(_, _, _, _, _, _, _, _, _, _, _, _, participantsCount, _, _, _, _, _, _, _, _):
+                            case let .channel(_, _, _, _, _, _, _, _, _, _, _, _, participantsCount, _, _, _, _, _, _, _, _, _, _):
                                 if let participantsCount = participantsCount {
                                     subscribers[groupOrChannel.id] = participantsCount
                                 }

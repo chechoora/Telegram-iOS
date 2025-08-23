@@ -126,6 +126,7 @@ public final class ContextMenuActionItem {
     public let id: AnyHashable?
     public let text: String
     public let entities: [MessageTextEntity]
+    public let entityFiles: [Int64: TelegramMediaFile]
     public let enableEntityAnimations: Bool
     public let textColor: ContextMenuActionItemTextColor
     public let textFont: ContextMenuActionItemFont
@@ -141,11 +142,13 @@ public final class ContextMenuActionItem {
     public let textIcon: (PresentationTheme) -> UIImage?
     public let textLinkAction: () -> Void
     public let action: ((Action) -> Void)?
+    public let longPressAction: ((Action) -> Void)?
     
     convenience public init(
         id: AnyHashable? = nil,
         text: String,
         entities: [MessageTextEntity] = [],
+        entityFiles: [Int64: TelegramMediaFile] = [:],
         enableEntityAnimations: Bool = true,
         textColor: ContextMenuActionItemTextColor = .primary,
         textLayout: ContextMenuActionItemTextLayout = .twoLinesMax,
@@ -160,12 +163,14 @@ public final class ContextMenuActionItem {
         iconAnimation: IconAnimation? = nil,
         textIcon: @escaping (PresentationTheme) -> UIImage? = { _ in return nil },
         textLinkAction: @escaping () -> Void = {},
-        action: ((ContextControllerProtocol?, @escaping (ContextMenuActionResult) -> Void) -> Void)?
+        action: ((ContextControllerProtocol?, @escaping (ContextMenuActionResult) -> Void) -> Void)?,
+        longPressAction: ((ContextControllerProtocol?, @escaping (ContextMenuActionResult) -> Void) -> Void)? = nil
     ) {
         self.init(
             id: id,
             text: text,
             entities: entities,
+            entityFiles: entityFiles,
             enableEntityAnimations: enableEntityAnimations,
             textColor: textColor,
             textLayout: textLayout,
@@ -184,6 +189,11 @@ public final class ContextMenuActionItem {
                 return { impl in
                     action(impl.controller, impl.dismissWithResult)
                 }
+            },
+            longPressAction: longPressAction.flatMap { longPressAction in
+                return { impl in
+                    longPressAction(impl.controller, impl.dismissWithResult)
+                }
             }
         )
     }
@@ -192,6 +202,7 @@ public final class ContextMenuActionItem {
         id: AnyHashable? = nil,
         text: String,
         entities: [MessageTextEntity] = [],
+        entityFiles: [Int64: TelegramMediaFile] = [:],
         enableEntityAnimations: Bool = true,
         textColor: ContextMenuActionItemTextColor = .primary,
         textLayout: ContextMenuActionItemTextLayout = .twoLinesMax,
@@ -206,11 +217,13 @@ public final class ContextMenuActionItem {
         iconAnimation: IconAnimation? = nil,
         textIcon: @escaping (PresentationTheme) -> UIImage? = { _ in return nil },
         textLinkAction: @escaping () -> Void = {},
-        action: ((Action) -> Void)?
+        action: ((Action) -> Void)?,
+        longPressAction: ((Action) -> Void)? = nil
     ) {
         self.id = id
         self.text = text
         self.entities = entities
+        self.entityFiles = entityFiles
         self.enableEntityAnimations = enableEntityAnimations
         self.textColor = textColor
         self.textFont = textFont
@@ -226,6 +239,7 @@ public final class ContextMenuActionItem {
         self.textIcon = textIcon
         self.textLinkAction = textLinkAction
         self.action = action
+        self.longPressAction = longPressAction
     }
 }
 
@@ -513,7 +527,12 @@ final class ContextControllerNode: ViewControllerTracingNode, ASScrollViewDelega
                 guard let strongSelf = self, let _ = gesture else {
                     return
                 }
-                let localPoint = strongSelf.view.convert(point, from: view)
+                let localPoint: CGPoint
+                if let layout = strongSelf.validLayout, layout.metrics.isTablet, layout.size.width > layout.size.height, let view {
+                    localPoint = view.convert(point, to: nil)
+                } else {
+                    localPoint = strongSelf.view.convert(point, from: view)
+                }
                 let initialPoint: CGPoint
                 if let current = strongSelf.initialContinueGesturePoint {
                     initialPoint = current
@@ -1356,6 +1375,16 @@ final class ContextControllerNode: ViewControllerTracingNode, ASScrollViewDelega
         }
     }
 
+    func animateDismissalIfNeeded() {
+        guard let layout = self.validLayout, layout.metrics.isTablet else {
+            return
+        }
+        if let sourceContainer = self.sourceContainer {
+            sourceContainer.animateOut(result: .dismissWithoutContent, completion: {})
+            return
+        }
+    }
+    
     func getActionsMinHeight() -> ContextController.ActionsHeight? {
         if !self.actionsContainerNode.bounds.height.isZero {
             return ContextController.ActionsHeight(
@@ -2121,11 +2150,17 @@ public protocol ContextReferenceContentSource: AnyObject {
     
     var shouldBeDismissed: Signal<Bool, NoError> { get }
     
+    var forceDisplayBelowKeyboard: Bool { get }
+    
     func transitionInfo() -> ContextControllerReferenceViewInfo?
 }
 
 public extension ContextReferenceContentSource {
     var keepInPlace: Bool {
+        return false
+    }
+    
+    var forceDisplayBelowKeyboard: Bool {
         return false
     }
     
@@ -2175,6 +2210,7 @@ public protocol ContextExtractedContentSource: AnyObject {
     var adjustContentHorizontally: Bool { get }
     var adjustContentForSideInset: Bool { get }
     var ignoreContentTouches: Bool { get }
+    var keepDefaultContentTouches: Bool { get }
     var blurBackground: Bool { get }
     var shouldBeDismissed: Signal<Bool, NoError> { get }
     
@@ -2207,6 +2243,10 @@ public extension ContextExtractedContentSource {
 
     var shouldBeDismissed: Signal<Bool, NoError> {
         return .single(false)
+    }
+    
+    var keepDefaultContentTouches: Bool {
+        return false
     }
 }
 
@@ -2254,14 +2294,24 @@ public final class ContextController: ViewController, StandalonePresentableContr
     public final class Source {
         public let id: AnyHashable
         public let title: String
+        public let footer: String?
         public let source: ContextContentSource
         public let items: Signal<ContextController.Items, NoError>
         public let closeActionTitle: String?
         public let closeAction: (() -> Void)?
         
-        public init(id: AnyHashable, title: String, source: ContextContentSource, items: Signal<ContextController.Items, NoError>, closeActionTitle: String? = nil, closeAction: (() -> Void)? = nil) {
+        public init(
+            id: AnyHashable,
+            title: String,
+            footer: String? = nil,
+            source: ContextContentSource,
+            items: Signal<ContextController.Items, NoError>,
+            closeActionTitle: String? = nil,
+            closeAction: (() -> Void)? = nil
+        ) {
             self.id = id
             self.title = title
+            self.footer = footer
             self.source = source
             self.items = items
             self.closeActionTitle = closeActionTitle
@@ -2490,6 +2540,7 @@ public final class ContextController: ViewController, StandalonePresentableContr
     public var immediateItemsTransitionAnimation = false
     let workaroundUseLegacyImplementation: Bool
     let disableScreenshots: Bool
+    let hideReactionPanelTail: Bool
 
     public enum HandledTouchEvent {
         case ignore
@@ -2505,7 +2556,7 @@ public final class ContextController: ViewController, StandalonePresentableContr
     
     public var getOverlayViews: (() -> [UIView])?
     
-    convenience public init(context: AccountContext? = nil, presentationData: PresentationData, source: ContextContentSource, items: Signal<ContextController.Items, NoError>, recognizer: TapLongTapOrDoubleTapGestureRecognizer? = nil, gesture: ContextGesture? = nil, workaroundUseLegacyImplementation: Bool = false, disableScreenshots: Bool = false) {
+    convenience public init(context: AccountContext? = nil, presentationData: PresentationData, source: ContextContentSource, items: Signal<ContextController.Items, NoError>, recognizer: TapLongTapOrDoubleTapGestureRecognizer? = nil, gesture: ContextGesture? = nil, workaroundUseLegacyImplementation: Bool = false, disableScreenshots: Bool = false, hideReactionPanelTail: Bool = false) {
         self.init(
             context: context,
             presentationData: presentationData,
@@ -2521,7 +2572,8 @@ public final class ContextController: ViewController, StandalonePresentableContr
             recognizer: recognizer,
             gesture: gesture,
             workaroundUseLegacyImplementation: workaroundUseLegacyImplementation,
-            disableScreenshots: disableScreenshots
+            disableScreenshots: disableScreenshots,
+            hideReactionPanelTail: hideReactionPanelTail
         )
     }
     
@@ -2532,7 +2584,8 @@ public final class ContextController: ViewController, StandalonePresentableContr
         recognizer: TapLongTapOrDoubleTapGestureRecognizer? = nil,
         gesture: ContextGesture? = nil,
         workaroundUseLegacyImplementation: Bool = false,
-        disableScreenshots: Bool = false
+        disableScreenshots: Bool = false,
+        hideReactionPanelTail: Bool = false
     ) {
         self.context = context
         self.presentationData = presentationData
@@ -2541,6 +2594,7 @@ public final class ContextController: ViewController, StandalonePresentableContr
         self.gesture = gesture
         self.workaroundUseLegacyImplementation = workaroundUseLegacyImplementation
         self.disableScreenshots = disableScreenshots
+        self.hideReactionPanelTail = hideReactionPanelTail
         
         super.init(navigationBarPresentationData: nil)
         
@@ -2711,7 +2765,9 @@ public final class ContextController: ViewController, StandalonePresentableContr
     }
     
     public func dismiss(result: ContextMenuActionResult, completion: (() -> Void)?) {
-        if viewTreeContainsFirstResponder(view: self.view) {
+        if let mainSource = self.configuration.sources.first(where: { $0.id == self.configuration.initialId }), case let .reference(source) = mainSource.source, source.forceDisplayBelowKeyboard {
+            
+        } else if viewTreeContainsFirstResponder(view: self.view) { 
             self.dismissOnInputClose = (result, completion)
             self.view.endEditing(true)
             return
@@ -2764,6 +2820,10 @@ public final class ContextController: ViewController, StandalonePresentableContr
             })
             self.dismissed?()
         }
+    }
+    
+    public func animateDismissalIfNeeded() {
+        self.controllerNode.animateDismissalIfNeeded()
     }
     
     public func cancelReactionAnimation() {

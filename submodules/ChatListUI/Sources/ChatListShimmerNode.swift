@@ -161,6 +161,9 @@ public final class ChatListShimmerNode: ASDisplayNode {
             }, editPeer: { _ in
             }, openWebApp: { _ in
             }, openPhotoSetup: {
+            }, openAdInfo: { _, _ in
+            }, openAccountFreezeInfo: {
+            }, openUrl: { _ in
             })
             interaction.isInlineMode = isInlineMode
             
@@ -216,7 +219,7 @@ public final class ChatListShimmerNode: ASDisplayNode {
                     requiresPremiumForMessaging: false,
                     displayAsTopicList: false,
                     tags: []
-                )), editing: false, hasActiveRevealControls: false, selected: false, header: nil, enableContextActions: false, hiddenOffset: false, interaction: interaction)
+                )), editing: false, hasActiveRevealControls: false, selected: false, header: nil, enabledContextActions: nil, hiddenOffset: false, interaction: interaction)
             }
             
             var itemNodes: [ChatListItemNode] = []

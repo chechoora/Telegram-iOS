@@ -139,6 +139,7 @@ private func hashForStickerPackInfos(_ infos: [StickerPackCollectionInfo]) -> In
 private enum SynchronizeInstalledStickerPacksError {
     case restart
     case done
+    case frozen
 }
 
 private func fetchStickerPack(network: Network, info: StickerPackCollectionInfo) -> Signal<(StickerPackCollectionInfo, [ItemCollectionItem]), NoError> {
@@ -479,10 +480,13 @@ private func continueSynchronizeInstalledStickerPacks(transaction: Transaction, 
     }
     
     let sequence = request
-    |> retryRequest
+    |> retryRequestIfNotFrozen
     |> mapError { _ -> SynchronizeInstalledStickerPacksError in
     }
     |> mapToSignal { result -> Signal<Void, SynchronizeInstalledStickerPacksError> in
+        guard let result else {
+            return .fail(.frozen)
+        }
         return postbox.transaction { transaction -> Signal<Void, SynchronizeInstalledStickerPacksError> in
             let checkLocalCollectionInfos = transaction.getItemCollectionsInfos(namespace: collectionNamespace).map { $0.1 as! StickerPackCollectionInfo }
             if checkLocalCollectionInfos != localCollectionInfos {
@@ -569,7 +573,7 @@ private func continueSynchronizeInstalledStickerPacks(transaction: Transaction, 
                                     let items = transaction.getItemCollectionItems(collectionId: id)
                                     for item in items {
                                         if let stickerItem = item as? StickerPackItem, stickerItem.file.isPremiumSticker,
-                                           let entry = CodableEntry(RecentMediaItem(stickerItem.file)) {
+                                           let entry = CodableEntry(RecentMediaItem(stickerItem.file._parse())) {
                                             premiumStickers.append(OrderedItemListEntry(id: RecentMediaItemId(stickerItem.file.fileId).rawValue, contents: entry))
                                         }
                                     }
@@ -690,7 +694,7 @@ private func continueSynchronizeInstalledStickerPacks(transaction: Transaction, 
                             let items = transaction.getItemCollectionItems(collectionId: id)
                             for item in items {
                                 if let stickerItem = item as? StickerPackItem, stickerItem.file.isPremiumSticker,
-                                   let entry = CodableEntry(RecentMediaItem(stickerItem.file)) {
+                                   let entry = CodableEntry(RecentMediaItem(stickerItem.file._parse())) {
                                     premiumStickers.append(OrderedItemListEntry(id: RecentMediaItemId(stickerItem.file.fileId).rawValue, contents: entry))
                                 }
                             }
@@ -714,6 +718,8 @@ private func continueSynchronizeInstalledStickerPacks(transaction: Transaction, 
     return ((sequence
     |> `catch` { error -> Signal<Void, SynchronizeInstalledStickerPacksError> in
         switch error {
+            case .frozen:
+                return .fail(.frozen)
             case .done:
                 return .fail(.done)
             case .restart:

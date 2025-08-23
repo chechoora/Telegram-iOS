@@ -30,9 +30,11 @@ public final class MultilineTextWithEntitiesComponent: Component {
     public let textShadowColor: UIColor?
     public let textStroke: (UIColor, CGFloat)?
     public let highlightColor: UIColor?
+    public let highlightInset: UIEdgeInsets
     public let handleSpoilers: Bool
     public let manualVisibilityControl: Bool
     public let resetAnimationsOnVisibilityChange: Bool
+    public let displaysAsynchronously: Bool
     public let highlightAction: (([NSAttributedString.Key: Any]) -> NSAttributedString.Key?)?
     public let tapAction: (([NSAttributedString.Key: Any], Int) -> Void)?
     public let longTapAction: (([NSAttributedString.Key: Any], Int) -> Void)?
@@ -53,9 +55,11 @@ public final class MultilineTextWithEntitiesComponent: Component {
         textShadowColor: UIColor? = nil,
         textStroke: (UIColor, CGFloat)? = nil,
         highlightColor: UIColor? = nil,
+        highlightInset: UIEdgeInsets = .zero,
         handleSpoilers: Bool = false,
         manualVisibilityControl: Bool = false,
         resetAnimationsOnVisibilityChange: Bool = false,
+        displaysAsynchronously: Bool = true,
         highlightAction: (([NSAttributedString.Key: Any]) -> NSAttributedString.Key?)? = nil,
         tapAction: (([NSAttributedString.Key: Any], Int) -> Void)? = nil,
         longTapAction: (([NSAttributedString.Key: Any], Int) -> Void)? = nil
@@ -75,10 +79,12 @@ public final class MultilineTextWithEntitiesComponent: Component {
         self.textShadowColor = textShadowColor
         self.textStroke = textStroke
         self.highlightColor = highlightColor
+        self.highlightInset = highlightInset
         self.highlightAction = highlightAction
         self.handleSpoilers = handleSpoilers
         self.manualVisibilityControl = manualVisibilityControl
         self.resetAnimationsOnVisibilityChange = resetAnimationsOnVisibilityChange
+        self.displaysAsynchronously = displaysAsynchronously
         self.tapAction = tapAction
         self.longTapAction = longTapAction
     }
@@ -117,6 +123,9 @@ public final class MultilineTextWithEntitiesComponent: Component {
         if lhs.resetAnimationsOnVisibilityChange != rhs.resetAnimationsOnVisibilityChange {
             return false
         }
+        if lhs.displaysAsynchronously != rhs.displaysAsynchronously {
+            return false
+        }
         if let lhsTextShadowColor = lhs.textShadowColor, let rhsTextShadowColor = rhs.textShadowColor {
             if !lhsTextShadowColor.isEqual(rhsTextShadowColor) {
                 return false
@@ -144,6 +153,10 @@ public final class MultilineTextWithEntitiesComponent: Component {
             return false
         }
         
+        if lhs.highlightInset != rhs.highlightInset {
+            return false
+        }
+        
         return true
     }
     
@@ -153,6 +166,7 @@ public final class MultilineTextWithEntitiesComponent: Component {
         
         public override init(frame: CGRect) {
             self.textNode = ImmediateTextNodeWithEntities()
+            
             
             super.init(frame: frame)
             
@@ -168,6 +182,8 @@ public final class MultilineTextWithEntitiesComponent: Component {
         }
         
         public func update(component: MultilineTextWithEntitiesComponent, availableSize: CGSize, transition: ComponentTransition) -> CGSize {
+            self.textNode.displaysAsynchronously = component.displaysAsynchronously
+            
             let attributedString: NSAttributedString
             switch component.text {
             case let .plain(string):
@@ -189,6 +205,7 @@ public final class MultilineTextWithEntitiesComponent: Component {
             self.textNode.textShadowColor = component.textShadowColor
             self.textNode.textStroke = component.textStroke
             self.textNode.linkHighlightColor = component.highlightColor
+            self.textNode.linkHighlightInset = component.highlightInset
             self.textNode.highlightAttributeAction = component.highlightAction
             self.textNode.tapAttributeAction = component.tapAction
             self.textNode.longTapAttributeAction = component.longTapAction

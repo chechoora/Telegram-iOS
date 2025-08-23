@@ -59,6 +59,10 @@ func requiredBoostSubjectLevel(subject: BoostSubject, group: Bool, context: Acco
         return configuration.minGroupEmojiPackLevel
     case .noAds:
         return configuration.minChannelRestrictAdsLevel
+    case .wearGift:
+        return configuration.minChannelWearGiftLevel
+    case .autoTranslate:
+        return configuration.minChannelAutoTranslateLevel
     }
 }
 
@@ -240,6 +244,8 @@ private final class LevelSectionComponent: CombinedComponent {
         case audioTranscription
         case emojiPack
         case noAds
+        case wearGift
+        case autoTranslate
         
         func title(strings: PresentationStrings, isGroup: Bool) -> String {
             switch self {
@@ -269,6 +275,10 @@ private final class LevelSectionComponent: CombinedComponent {
                 return strings.GroupBoost_Table_Group_EmojiPack
             case .noAds:
                 return strings.ChannelBoost_Table_NoAds
+            case .wearGift:
+                return strings.ChannelBoost_Table_WearGift
+            case .autoTranslate:
+                return strings.ChannelBoost_Table_AutoTranslate
             }
         }
         
@@ -300,6 +310,10 @@ private final class LevelSectionComponent: CombinedComponent {
                 return "Premium/BoostPerk/EmojiPack"
             case .noAds:
                 return "Premium/BoostPerk/NoAds"
+            case .wearGift:
+                return "Premium/BoostPerk/NoAds"
+            case .autoTranslate:
+                return "Chat/Title Panels/Translate"
             }
         }
     }
@@ -638,6 +652,10 @@ private final class SheetContent: CombinedComponent {
                             textString = strings.GroupBoost_EnableEmojiPackLevelText("\(requiredLevel)").string
                         case .noAds:
                             textString = strings.ChannelBoost_EnableNoAdsLevelText("\(requiredLevel)").string
+                        case .wearGift:
+                            textString = strings.ChannelBoost_WearGiftLevelText("\(requiredLevel)").string
+                        case .autoTranslate:
+                            textString = strings.ChannelBoost_AutoTranslateLevelText("\(requiredLevel)").string
                         }
                     } else {
                         let boostsString = strings.ChannelBoost_MoreBoostsNeeded_Boosts(Int32(remaining))
@@ -783,15 +801,6 @@ private final class SheetContent: CombinedComponent {
                     availableSize: CGSize(width: 90.0, height: 90.0),
                     transition: .immediate
                 )
-//                let icon = icon.update(
-//                    component: LottieComponent(
-//                        content: LottieComponent.AppBundleContent(name: iconName),
-//                        playOnce: state.playOnce
-//                    ),
-//                    availableSize: CGSize(width: 70, height: 70),
-//                    transition: .immediate
-//                )
-                
                 context.add(icon
                     .position(CGPoint(x: context.availableSize.width / 2.0, y: contentSize.height + iconBackground.size.height / 2.0))
                 )
@@ -1098,6 +1107,10 @@ private final class SheetContent: CombinedComponent {
             
             func layoutLevel(_ level: Int32) {
                 var perks: [LevelSectionComponent.Perk] = []
+                
+                if !isGroup && level >= requiredBoostSubjectLevel(subject: .autoTranslate, group: isGroup, context: component.context, configuration: premiumConfiguration) {
+                    perks.append(.autoTranslate)
+                }
                 
                 perks.append(.story(level))
                 
@@ -1461,6 +1474,10 @@ private final class BoostLevelsContainerComponent: CombinedComponent {
                             titleString = strings.GroupBoost_EmojiPack
                         case .noAds:
                             titleString = strings.ChannelBoost_NoAds
+                        case .wearGift:
+                            titleString = strings.ChannelBoost_WearGift
+                        case .autoTranslate:
+                            titleString = strings.ChannelBoost_AutoTranslate
                         }
                     } else {
                         titleString = isGroup == true ? strings.GroupBoost_Title_Current : strings.ChannelBoost_Title_Current

@@ -12,8 +12,8 @@ final class CameraSession {
     
     let hasMultiCam: Bool
         
-    init() {
-        if #available(iOS 13.0, *), AVCaptureMultiCamSession.isMultiCamSupported {
+    init(forRoundVideo: Bool) {
+        if #available(iOS 13.0, *), Camera.isDualCameraSupported(forRoundVideo: forRoundVideo) {
             self.multiSession = AVCaptureMultiCamSession()
             self.singleSession = nil
             self.hasMultiCam = true
@@ -173,8 +173,11 @@ private final class CameraContext {
         self.positionValue = configuration.position
         self._positionPromise = ValuePromise<Camera.Position>(configuration.position)
         
+#if targetEnvironment(simulator)
+#else
         self.setDualCameraEnabled(configuration.isDualEnabled, change: false)
-                        
+#endif
+        
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(self.sessionRuntimeError),
@@ -757,12 +760,22 @@ public final class Camera {
     
     public let metrics: Camera.Metrics
     
-    public init(configuration: Camera.Configuration = Configuration(preset: .hd1920x1080, position: .back, audio: true, photo: false, metadata: false), previewView: CameraSimplePreviewView? = nil, secondaryPreviewView: CameraSimplePreviewView? = nil) {
+    public init(
+        configuration: Camera.Configuration = Configuration(
+            preset: .hd1920x1080,
+            position: .back,
+            audio: true,
+            photo: false,
+            metadata: false
+        ),
+        previewView: CameraSimplePreviewView? = nil,
+        secondaryPreviewView: CameraSimplePreviewView? = nil
+    ) {
         Logger.shared.log("Camera", "Init")
         
         self.metrics = Camera.Metrics(model: DeviceModel.current)
         
-        let session = CameraSession()
+        let session = CameraSession(forRoundVideo: configuration.isRoundVideo)
         session.session.automaticallyConfiguresApplicationAudioSession = false
         session.session.automaticallyConfiguresCaptureDeviceForWideColor = false
         session.session.usesApplicationAudioSession = true

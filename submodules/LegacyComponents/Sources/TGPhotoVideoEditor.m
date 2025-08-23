@@ -1,12 +1,13 @@
-#import "TGPhotoVideoEditor.h"
+#import <LegacyComponents/LegacyComponents.h>
+#import <LegacyComponents/TGPhotoVideoEditor.h>
 
-#import "TGMediaEditingContext.h"
+#import <LegacyComponents/TGMediaEditingContext.h>
 
-#import "TGMediaPickerGalleryModel.h"
-#import "TGMediaPickerGalleryPhotoItem.h"
-#import "TGMediaPickerGalleryVideoItem.h"
+#import <LegacyComponents/TGMediaPickerGalleryModel.h>
+#import <LegacyComponents/TGMediaPickerGalleryPhotoItem.h>
+#import <LegacyComponents/TGMediaPickerGalleryVideoItem.h>
 
-#import "TGMediaPickerGalleryVideoItemView.h"
+#import <LegacyComponents/TGMediaPickerGalleryVideoItemView.h>
 
 #import "LegacyComponentsInternal.h"
 
@@ -178,7 +179,7 @@
     galleryItem.editingContext = editingContext;
     galleryItem.stickersContext = stickersContext;
     
-    TGMediaPickerGalleryModel *model = [[TGMediaPickerGalleryModel alloc] initWithContext:windowContext items:@[galleryItem] focusItem:galleryItem selectionContext:nil editingContext:editingContext hasCaptions:true allowCaptionEntities:true hasTimer:false onlyCrop:false inhibitDocumentCaptions:false hasSelectionPanel:false hasCamera:false recipientName:recipientName isScheduledMessages:false];
+    TGMediaPickerGalleryModel *model = [[TGMediaPickerGalleryModel alloc] initWithContext:windowContext items:@[galleryItem] focusItem:galleryItem selectionContext:nil editingContext:editingContext hasCaptions:true allowCaptionEntities:true hasTimer:false onlyCrop:false inhibitDocumentCaptions:false hasSelectionPanel:false hasCamera:false recipientName:recipientName isScheduledMessages:false hasCoverButton:false];
     model.controller = galleryController;
     model.stickersContext = stickersContext;
     
@@ -315,10 +316,8 @@
     
     editorController.beginTransitionOut = ^UIView *(CGRect *referenceFrame, UIView **parentView, bool saving)
     {
-        CGRect startFrame = CGRectZero;
         if (referenceFrame != NULL)
         {
-            startFrame = *referenceFrame;
             *referenceFrame = fromRect;
             *parentView = referenceView.superview;
         }

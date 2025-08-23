@@ -142,11 +142,32 @@ public extension Peer {
     var largeProfileImage: TelegramMediaImageRepresentation? {
         return largestImageRepresentation(self.profileImageRepresentations)
     }
-    
+        
     var isDeleted: Bool {
         switch self {
         case let user as TelegramUser:
             return user.firstName == nil && user.lastName == nil
+        default:
+            return false
+        }
+    }
+    
+    var isGenericUser: Bool {
+        switch self {
+        case let user as TelegramUser:
+            if user.isDeleted {
+                return false
+            }
+            if user.botInfo != nil {
+                return false
+            }
+            if user.id.isRepliesOrVerificationCodes {
+                return false
+            }
+            if user.id.isTelegramNotifications {
+                return false
+            }
+            return true
         default:
             return false
         }
@@ -250,6 +271,30 @@ public extension Peer {
         }
     }
     
+    var isMonoForum: Bool {
+        if let channel = self as? TelegramChannel {
+            return channel.flags.contains(.isMonoforum)
+        } else {
+            return false
+        }
+    }
+    
+    var displayForumAsTabs: Bool {
+        if let channel = self as? TelegramChannel, isForum {
+            return channel.flags.contains(.displayForumAsTabs)
+        } else {
+            return false
+        }
+    }
+    
+    var isForumOrMonoForum: Bool {
+        if let channel = self as? TelegramChannel {
+            return channel.flags.contains(.isForum) || channel.flags.contains(.isMonoforum)
+        } else {
+            return false
+        }
+    }
+    
     var nameColor: PeerNameColor? {
         switch self {
         case let user as TelegramUser:
@@ -281,6 +326,14 @@ public extension Peer {
     }
     
     var profileColor: PeerNameColor? {
+        if let emojiStatus {
+            switch emojiStatus.content {
+            case let .starGift(_, _, _, _, _, _, outerColor, _, _):
+                return PeerNameColor.other(outerColor)
+            default:
+                break
+            }
+        }
         switch self {
         case let user as TelegramUser:
             return user.profileColor
@@ -322,6 +375,14 @@ public extension Peer {
     }
     
     var profileBackgroundEmojiId: Int64? {
+        if let emojiStatus {
+            switch emojiStatus.content {
+            case let .starGift(_, _, _, _, patternFileId, _, _, _, _):
+                return patternFileId
+            default:
+                break
+            }
+        }
         switch self {
         case let user as TelegramUser:
             return user.profileBackgroundEmojiId
@@ -402,6 +463,18 @@ public func peerViewMainPeer(_ view: PeerView) -> Peer? {
     }
 }
 
+public func peerViewMonoforumMainPeer(_ view: PeerView) -> Peer? {
+    if let peer = peerViewMainPeer(view) {
+        if let channel = peer as? TelegramChannel, channel.flags.contains(.isMonoforum), let linkedMonoforumId = channel.linkedMonoforumId {
+            return view.peers[linkedMonoforumId]
+        } else {
+            return nil
+        }
+    } else {
+        return nil
+    }
+}
+
 public extension RenderedPeer {
     convenience init(message: Message) {
         var peers = SimpleDictionary<PeerId, Peer>()
@@ -410,6 +483,10 @@ public extension RenderedPeer {
             peers[peer.id] = peer
             if let peer = peer as? TelegramSecretChat {
                 if let regularPeer = message.peers[peer.regularPeerId] {
+                    peers[regularPeer.id] = regularPeer
+                }
+            } else if let peer = peer as? TelegramChannel, peer.isMonoForum, let linkedMonoforumId = peer.linkedMonoforumId {
+                if let regularPeer = message.peers[linkedMonoforumId] {
                     peers[regularPeer.id] = regularPeer
                 }
             }
@@ -426,6 +503,14 @@ public extension RenderedPeer {
             }
         } else {
             return nil
+        }
+    }
+    
+    var chatOrMonoforumMainPeer: Peer? {
+        if let channel = self.peer as? TelegramChannel, channel.flags.contains(.isMonoforum), let linkedMonoforumId = channel.linkedMonoforumId {
+            return self.peers[linkedMonoforumId]
+        } else {
+            return self.chatMainPeer
         }
     }
 }

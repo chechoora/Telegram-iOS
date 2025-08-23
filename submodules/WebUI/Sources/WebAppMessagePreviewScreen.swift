@@ -22,6 +22,7 @@ import ListSectionComponent
 import ListItemComponentAdaptor
 import TelegramStringFormatting
 import UndoUI
+import ChatMessagePaymentAlertController
 
 private final class SheetContent: CombinedComponent {
     typealias EnvironmentType = ViewControllerComponentContainer.Environment
@@ -128,11 +129,12 @@ private final class SheetContent: CombinedComponent {
             var text: String = ""
             var entities: TextEntitiesMessageAttribute?
             var media: [Media] = []
+            var replyMarkup: ReplyMarkupMessageAttribute?
             
             switch component.preparedMessage.result {
             case let .internalReference(reference):
                 switch reference.message {
-                case let .auto(textValue, entitiesValue, _):
+                case let .auto(textValue, entitiesValue, replyMarkupValue):
                     text = textValue
                     entities = entitiesValue
                     if let file = reference.file {
@@ -140,39 +142,49 @@ private final class SheetContent: CombinedComponent {
                     } else if let image = reference.image {
                         media = [image]
                     }
-                case let .text(textValue, entitiesValue, disableUrlPreview, previewParameters, _):
+                    replyMarkup = replyMarkupValue
+                case let .text(textValue, entitiesValue, disableUrlPreview, previewParameters, replyMarkupValue):
                     text = textValue
                     entities = entitiesValue
                     let _ = disableUrlPreview
                     let _ = previewParameters
-                case let .contact(contact, _):
+                    replyMarkup = replyMarkupValue
+                case let .contact(contact, replyMarkupValue):
                     media = [contact]
-                case let .mapLocation(map, _):
+                    replyMarkup = replyMarkupValue
+                case let .mapLocation(map, replyMarkupValue):
                     media = [map]
-                case let .invoice(invoice, _):
+                    replyMarkup = replyMarkupValue
+                case let .invoice(invoice, replyMarkupValue):
                     media = [invoice]
+                    replyMarkup = replyMarkupValue
                 default:
                     break
                 }
             case let .externalReference(reference):
                 switch reference.message {
-                case let .auto(textValue, entitiesValue, _):
+                case let .auto(textValue, entitiesValue, replyMarkupValue):
                     text = textValue
                     entities = entitiesValue
                     if let content = reference.content {
                         media = [content]
                     }
-                case let .text(textValue, entitiesValue, disableUrlPreview, previewParameters, _):
+                    replyMarkup = replyMarkupValue
+                case let .text(textValue, entitiesValue, disableUrlPreview, previewParameters, replyMarkupValue):
                     text = textValue
                     entities = entitiesValue
                     let _ = disableUrlPreview
                     let _ = previewParameters
-                case let .contact(contact, _):
+                    replyMarkup = replyMarkupValue
+                case let .contact(contact, replyMarkupValue):
                     media = [contact]
-                case let .mapLocation(map, _):
+                    replyMarkup = replyMarkupValue
+                case let .mapLocation(map, replyMarkupValue):
                     media = [map]
-                case let .invoice(invoice, _):
+                    replyMarkup = replyMarkupValue
+                case let .invoice(invoice, replyMarkupValue):
                     media = [invoice]
+                    replyMarkup = replyMarkupValue
                 default:
                     break
                 }
@@ -182,6 +194,7 @@ private final class SheetContent: CombinedComponent {
                 text: text,
                 entities: entities,
                 media: media,
+                replyMarkup: replyMarkup,
                 botAddress: component.botAddress
             )
                      
@@ -324,7 +337,8 @@ private final class WebAppMessagePreviewSheetComponent: CombinedComponent {
                         preparedMessage: context.component.preparedMessage,
                         dismiss: {
                             animateOut.invoke(Action { _ in
-                                if let controller = controller() {
+                                if let controller = controller() as? WebAppMessagePreviewScreen {
+                                    controller.completeWithResult(false)
                                     controller.dismiss(completion: nil)
                                 }
                             })
@@ -409,45 +423,104 @@ public final class WebAppMessagePreviewScreen: ViewControllerComponentContainer 
         fatalError("init(coder:) has not been implemented")
     }
     
-    fileprivate func complete(peers: [EnginePeer]) {
-        for peer in peers {
-            let _ = self.context.engine.messages.enqueueOutgoingMessage(
-                to: peer.id,
-                replyTo: nil,
-                storyId: nil,
-                content: .preparedInlineMessage(self.preparedMessage)
-            ).start()
-        }
+    private func presentPaidMessageAlertIfNeeded(peers: [EnginePeer], requiresStars: [EnginePeer.Id: Int64], completion: @escaping () -> Void) {
         
-        let text: String
-        let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
-        if peers.count == 1, let peer = peers.first {
-            let peerName = peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
-            text = presentationData.strings.Conversation_ForwardTooltip_Chat_One(peerName).string
-        } else if peers.count == 2, let firstPeer = peers.first, let secondPeer = peers.last {
-            let firstPeerName = firstPeer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
-            let secondPeerName = secondPeer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
-            text = presentationData.strings.Conversation_ForwardTooltip_TwoChats_One(firstPeerName, secondPeerName).string
-        } else if let peer = peers.first {
-            let peerName = peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
-            text = presentationData.strings.Conversation_ForwardTooltip_ManyChats_One(peerName, "\(peers.count - 1)").string
-        } else {
-            text = ""
-        }
-        
-        if let navigationController = self.navigationController as? NavigationController {
-            Queue.mainQueue().after(1.0) {
-                guard let lastController = navigationController.viewControllers.last as? ViewController else {
+    }
+    
+    fileprivate func complete(peers: [EnginePeer], controller: ViewController?) {
+        let _ = (self.context.engine.data.get(
+            EngineDataMap(
+                peers.map { TelegramEngine.EngineData.Item.Peer.SendPaidMessageStars.init(id: $0.id) }
+            ),
+            EngineDataList(
+                peers.map { TelegramEngine.EngineData.Item.Peer.RenderedPeer.init(id: $0.id) }
+            )
+        )
+        |> deliverOnMainQueue).start(next: { [weak self] sendPaidMessageStars, renderedPeers in
+            guard let self else {
+                return
+            }
+            let renderedPeers = renderedPeers.compactMap({ $0 })
+            var totalAmount: StarsAmount = .zero
+            var chargingPeers: [EngineRenderedPeer] = []
+            for peer in renderedPeers {
+                if let maybeAmount = sendPaidMessageStars[peer.peerId], let amount = maybeAmount {
+                    totalAmount = totalAmount + amount
+                    chargingPeers.append(peer)
+                }
+            }
+            
+            let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
+            let proceed = { [weak self] in
+                guard let self else {
                     return
                 }
-                lastController.present(UndoOverlayController(presentationData: presentationData, content: .forward(savedMessages: false, text: text), elevatedLayout: false, position: .top, animateInAsReplacement: true, action: { action in
-                    return false
-                }), in: .window(.root))
+                
+                for peer in peers {
+                    var starsAmount: StarsAmount?
+                    if let maybeAmount = sendPaidMessageStars[peer.id], let amount = maybeAmount {
+                        starsAmount = amount
+                    }
+                    let _ = self.context.engine.messages.enqueueOutgoingMessage(
+                        to: peer.id,
+                        replyTo: nil,
+                        storyId: nil,
+                        content: .preparedInlineMessage(self.preparedMessage),
+                        sendPaidMessageStars: starsAmount
+                    ).start()
+                }
+                
+                let text: String
+                if peers.count == 1, let peer = peers.first {
+                    let peerName = peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                    text = presentationData.strings.Conversation_ForwardTooltip_Chat_One(peerName).string
+                } else if peers.count == 2, let firstPeer = peers.first, let secondPeer = peers.last {
+                    let firstPeerName = firstPeer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                    let secondPeerName = secondPeer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                    text = presentationData.strings.Conversation_ForwardTooltip_TwoChats_One(firstPeerName, secondPeerName).string
+                } else if let peer = peers.first {
+                    let peerName = peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                    text = presentationData.strings.Conversation_ForwardTooltip_ManyChats_One(peerName, "\(peers.count - 1)").string
+                } else {
+                    text = ""
+                }
+                
+                if let navigationController = self.navigationController as? NavigationController {
+                    Queue.mainQueue().after(1.0) {
+                        guard let lastController = navigationController.viewControllers.last as? ViewController else {
+                            return
+                        }
+                        lastController.present(UndoOverlayController(presentationData: presentationData, content: .forward(savedMessages: false, text: text), elevatedLayout: false, position: .top, animateInAsReplacement: true, action: { action in
+                            return false
+                        }), in: .window(.root))
+                    }
+                }
+                
+                self.completeWithResult(true)
+                self.dismiss()
+                controller?.dismiss()
             }
-        }
-        
-        self.completeWithResult(true)
-        self.dismiss()
+            
+            if totalAmount.value > 0 {
+                let controller = chatMessagePaymentAlertController(
+                    context: nil,
+                    presentationData: presentationData,
+                    updatedPresentationData: nil,
+                    peers: chargingPeers,
+                    count: 1,
+                    amount: totalAmount,
+                    totalAmount: totalAmount,
+                    hasCheck: false,
+                    navigationController: self.navigationController as? NavigationController,
+                    completion: { _ in
+                        proceed()
+                    }
+                )
+                self.present(controller, in: .window(.root))
+            } else {
+                proceed()
+            }
+        })
     }
         
     private var completed = false
@@ -459,16 +532,28 @@ public final class WebAppMessagePreviewScreen: ViewControllerComponentContainer 
     }
     
     fileprivate func proceed() {
-        let requestPeerType = self.preparedMessage.peerTypes.requestPeerTypes
+        let peerTypes = self.preparedMessage.peerTypes
+        var types: [ReplyMarkupButtonRequestPeerType] = []
+        if peerTypes.contains(.users) {
+            types.append(.user(.init(isBot: false, isPremium: nil)))
+        }
+        if peerTypes.contains(.bots) {
+            types.append(.user(.init(isBot: true, isPremium: nil)))
+        }
+        if peerTypes.contains(.channels) {
+            types.append(.channel(.init(isCreator: false, hasUsername: nil, userAdminRights: TelegramChatAdminRights(rights: [.canPostMessages]), botAdminRights: nil)))
+        }
+        if peerTypes.contains(.groups) {
+            types.append(.group(.init(isCreator: false, hasUsername: nil, isForum: nil, botParticipant: false, userAdminRights: nil, botAdminRights: nil)))
+        }
         
-        let controller = self.context.sharedContext.makePeerSelectionController(PeerSelectionControllerParams(context: self.context, filter: [.excludeRecent, .doNotSearchMessages], requestPeerType: requestPeerType, hasContactSelector: false, multipleSelection: true, selectForumThreads: true, immediatelyActivateMultipleSelection: true))
+        let controller = self.context.sharedContext.makePeerSelectionController(PeerSelectionControllerParams(context: self.context, filter: [.excludeRecent, .doNotSearchMessages], requestPeerType: types, hasContactSelector: false, multipleSelection: true, selectForumThreads: true, immediatelyActivateMultipleSelection: true))
         
         controller.multiplePeersSelected = { [weak self, weak controller] peers, _, _, _, _, _ in
             guard let self else {
                 return
             }
-            self.complete(peers: peers)
-            controller?.dismiss()
+            self.complete(peers: peers, controller: controller)
         }
         
         self.push(controller)

@@ -58,7 +58,10 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                     openChatMessageMode = .automaticPlayback
             }
             
-            let _ = item.controllerInteraction.openMessage(item.message, OpenMessageParams(mode: openChatMessageMode, mediaIndex: self.mediaIndex, progress: self.itemNode?.makeProgress()))
+            if !item.controllerInteraction.isOpeningMedia {
+                let params = OpenMessageParams(mode: openChatMessageMode, mediaIndex: self.mediaIndex, progress: self.itemNode?.makeProgress())
+                let _ = item.controllerInteraction.openMessage(item.message, params)
+            }
         }
         
         self.interactiveImageNode.activateAgeRestrictedMedia = { [weak self] in
@@ -170,7 +173,9 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                                     automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(telegramFile.resource) != nil
                                 }
                             } else if (telegramFile.isVideo && !telegramFile.isAnimated) && item.context.sharedContext.energyUsageSettings.autoplayVideo {
-                                if NativeVideoContent.isHLSVideo(file: telegramFile) {
+                                if let _ = telegramFile.videoCover {
+                                    automaticPlayback = false
+                                } else if NativeVideoContent.isHLSVideo(file: telegramFile) {
                                     automaticPlayback = true
                                 } else if case .full = automaticDownload {
                                     automaticPlayback = true
@@ -220,7 +225,9 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                                 automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(telegramFile.resource) != nil
                             }
                         } else if (telegramFile.isVideo && !telegramFile.isAnimated) && item.context.sharedContext.energyUsageSettings.autoplayVideo {
-                            if NativeVideoContent.isHLSVideo(file: telegramFile) {
+                            if let _ = telegramFile.videoCover {
+                                automaticPlayback = false
+                            } else if NativeVideoContent.isHLSVideo(file: telegramFile) {
                                 automaticPlayback = true
                             } else if case .full = automaticDownload {
                                 automaticPlayback = true
@@ -300,6 +307,7 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
             }
             var viewCount: Int?
             var dateReplies = 0
+            var starsCount: Int64?
             var dateReactionsAndPeers = mergedMessageReactionsAndPeers(accountPeerId: item.context.account.peerId, accountPeer: item.associatedData.accountPeer, message: item.message)
             if item.message.isRestricted(platform: "ios", contentSettings: item.context.currentContentSettings.with { $0 }) {
                 dateReactionsAndPeers = ([], [])
@@ -316,6 +324,8 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                     if let channel = item.message.peers[item.message.id.peerId] as? TelegramChannel, case .group = channel.info {
                         dateReplies = Int(attribute.count)
                     }
+                } else if let attribute = attribute as? PaidStarsMessageAttribute, item.message.id.peerId.namespace == Namespaces.Peer.CloudChannel {
+                    starsCount = attribute.stars.value
                 }
             }
             
@@ -366,6 +376,7 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                     dateReactions: dateReactionsAndPeers.reactions,
                     dateReactionPeers: dateReactionsAndPeers.peers,
                     dateReplies: dateReplies,
+                    starsCount: starsCount,
                     isPinned: item.message.tags.contains(.pinned) && !item.associatedData.isInPinnedListMode && !isReplyThread,
                     dateText: dateText
                 )

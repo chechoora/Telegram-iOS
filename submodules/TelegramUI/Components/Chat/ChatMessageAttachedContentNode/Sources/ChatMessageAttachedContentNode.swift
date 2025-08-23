@@ -315,7 +315,7 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
             
             var mediaAndFlags = mediaAndFlags
             if let mediaAndFlagsValue = mediaAndFlags {
-                if mediaAndFlagsValue.0.first is TelegramMediaStory || mediaAndFlagsValue.0.first is WallpaperPreviewMedia {
+                if mediaAndFlagsValue.0.first is TelegramMediaStory || mediaAndFlagsValue.0.first is WallpaperPreviewMedia || mediaAndFlagsValue.0.first is UniqueGiftPreviewMedia {
                     var flags = mediaAndFlagsValue.1
                     flags.remove(.preferMediaInline)
                     mediaAndFlags = (mediaAndFlagsValue.0, flags)
@@ -360,7 +360,9 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                             contentMediaAutomaticDownload = .prefetch
                         }
                         
-                        if file.isAnimated {
+                        if let _ = file.videoCover {
+                            contentMediaAutomaticPlayback = false
+                        } else if file.isAnimated {
                             contentMediaAutomaticPlayback = context.sharedContext.energyUsageSettings.autoplayGif
                         } else if file.isVideo && context.sharedContext.energyUsageSettings.autoplayVideo {
                             var willDownloadOrLocal = false
@@ -374,13 +376,15 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                                 contentMediaAspectFilled = true
                             }
                         }
-                    } else if let _ = media as? TelegramMediaImage {
+                    } else if media is TelegramMediaImage {
                         contentMediaValue = media
-                    } else if let _ = media as? TelegramMediaWebFile {
+                    } else if media is TelegramMediaWebFile {
                         contentMediaValue = media
-                    } else if let _ = media as? WallpaperPreviewMedia {
+                    } else if media is WallpaperPreviewMedia {
                         contentMediaValue = media
-                    } else if let _ = media as? TelegramMediaStory {
+                    } else if media is TelegramMediaStory {
+                        contentMediaValue = media
+                    } else if media is UniqueGiftPreviewMedia {
                         contentMediaValue = media
                     }
                 }
@@ -671,6 +675,7 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                 }
                 var viewCount: Int?
                 var dateReplies = 0
+                var starsCount: Int64?
                 var dateReactionsAndPeers = mergedMessageReactionsAndPeers(accountPeerId: context.account.peerId, accountPeer: associatedData.accountPeer, message: message)
                 if message.isRestricted(platform: "ios", contentSettings: context.currentContentSettings.with { $0 }) || presentationData.isPreview {
                     dateReactionsAndPeers = ([], [])
@@ -684,6 +689,8 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                         if let channel = message.peers[message.id.peerId] as? TelegramChannel, case .group = channel.info {
                             dateReplies = Int(attribute.count)
                         }
+                    } else if let attribute = attribute as? PaidStarsMessageAttribute, message.id.peerId.namespace == Namespaces.Peer.CloudChannel {
+                        starsCount = attribute.stars.value
                     }
                 }
                 
@@ -741,8 +748,10 @@ public final class ChatMessageAttachedContentNode: ASDisplayNode {
                                 reactionPeers: dateReactionsAndPeers.peers,
                                 displayAllReactionPeers: message.id.peerId.namespace == Namespaces.Peer.CloudUser,
                                 areReactionsTags: message.areReactionsTags(accountPeerId: context.account.peerId),
+                                areStarReactionsEnabled: associatedData.areStarReactionsEnabled,
                                 messageEffect: message.messageEffect(availableMessageEffects: associatedData.availableMessageEffects),
                                 replyCount: dateReplies,
+                                starsCount: starsCount,
                                 isPinned: message.tags.contains(.pinned) && !associatedData.isInPinnedListMode && !isReplyThread,
                                 hasAutoremove: message.isSelfExpiring,
                                 canViewReactionList: canViewMessageReactionList(message: message),

@@ -710,7 +710,7 @@ public extension Api {
     indirect enum MessageMedia: TypeConstructorDescription {
         case messageMediaContact(phoneNumber: String, firstName: String, lastName: String, vcard: String, userId: Int64)
         case messageMediaDice(value: Int32, emoticon: String)
-        case messageMediaDocument(flags: Int32, document: Api.Document?, altDocuments: [Api.Document]?, ttlSeconds: Int32?)
+        case messageMediaDocument(flags: Int32, document: Api.Document?, altDocuments: [Api.Document]?, videoCover: Api.Photo?, videoTimestamp: Int32?, ttlSeconds: Int32?)
         case messageMediaEmpty
         case messageMediaGame(game: Api.Game)
         case messageMediaGeo(geo: Api.GeoPoint)
@@ -722,6 +722,7 @@ public extension Api {
         case messageMediaPhoto(flags: Int32, photo: Api.Photo?, ttlSeconds: Int32?)
         case messageMediaPoll(poll: Api.Poll, results: Api.PollResults)
         case messageMediaStory(flags: Int32, peer: Api.Peer, id: Int32, story: Api.StoryItem?)
+        case messageMediaToDo(flags: Int32, todo: Api.TodoList, completions: [Api.TodoCompletion]?)
         case messageMediaUnsupported
         case messageMediaVenue(geo: Api.GeoPoint, title: String, address: String, provider: String, venueId: String, venueType: String)
         case messageMediaWebPage(flags: Int32, webpage: Api.WebPage)
@@ -745,9 +746,9 @@ public extension Api {
                     serializeInt32(value, buffer: buffer, boxed: false)
                     serializeString(emoticon, buffer: buffer, boxed: false)
                     break
-                case .messageMediaDocument(let flags, let document, let altDocuments, let ttlSeconds):
+                case .messageMediaDocument(let flags, let document, let altDocuments, let videoCover, let videoTimestamp, let ttlSeconds):
                     if boxed {
-                        buffer.appendInt32(-581497899)
+                        buffer.appendInt32(1389939929)
                     }
                     serializeInt32(flags, buffer: buffer, boxed: false)
                     if Int(flags) & Int(1 << 0) != 0 {document!.serialize(buffer, true)}
@@ -756,6 +757,8 @@ public extension Api {
                     for item in altDocuments! {
                         item.serialize(buffer, true)
                     }}
+                    if Int(flags) & Int(1 << 9) != 0 {videoCover!.serialize(buffer, true)}
+                    if Int(flags) & Int(1 << 10) != 0 {serializeInt32(videoTimestamp!, buffer: buffer, boxed: false)}
                     if Int(flags) & Int(1 << 2) != 0 {serializeInt32(ttlSeconds!, buffer: buffer, boxed: false)}
                     break
                 case .messageMediaEmpty:
@@ -876,6 +879,18 @@ public extension Api {
                     serializeInt32(id, buffer: buffer, boxed: false)
                     if Int(flags) & Int(1 << 0) != 0 {story!.serialize(buffer, true)}
                     break
+                case .messageMediaToDo(let flags, let todo, let completions):
+                    if boxed {
+                        buffer.appendInt32(-1974226924)
+                    }
+                    serializeInt32(flags, buffer: buffer, boxed: false)
+                    todo.serialize(buffer, true)
+                    if Int(flags) & Int(1 << 0) != 0 {buffer.appendInt32(481674261)
+                    buffer.appendInt32(Int32(completions!.count))
+                    for item in completions! {
+                        item.serialize(buffer, true)
+                    }}
+                    break
                 case .messageMediaUnsupported:
                     if boxed {
                         buffer.appendInt32(-1618676578)
@@ -909,8 +924,8 @@ public extension Api {
                 return ("messageMediaContact", [("phoneNumber", phoneNumber as Any), ("firstName", firstName as Any), ("lastName", lastName as Any), ("vcard", vcard as Any), ("userId", userId as Any)])
                 case .messageMediaDice(let value, let emoticon):
                 return ("messageMediaDice", [("value", value as Any), ("emoticon", emoticon as Any)])
-                case .messageMediaDocument(let flags, let document, let altDocuments, let ttlSeconds):
-                return ("messageMediaDocument", [("flags", flags as Any), ("document", document as Any), ("altDocuments", altDocuments as Any), ("ttlSeconds", ttlSeconds as Any)])
+                case .messageMediaDocument(let flags, let document, let altDocuments, let videoCover, let videoTimestamp, let ttlSeconds):
+                return ("messageMediaDocument", [("flags", flags as Any), ("document", document as Any), ("altDocuments", altDocuments as Any), ("videoCover", videoCover as Any), ("videoTimestamp", videoTimestamp as Any), ("ttlSeconds", ttlSeconds as Any)])
                 case .messageMediaEmpty:
                 return ("messageMediaEmpty", [])
                 case .messageMediaGame(let game):
@@ -933,6 +948,8 @@ public extension Api {
                 return ("messageMediaPoll", [("poll", poll as Any), ("results", results as Any)])
                 case .messageMediaStory(let flags, let peer, let id, let story):
                 return ("messageMediaStory", [("flags", flags as Any), ("peer", peer as Any), ("id", id as Any), ("story", story as Any)])
+                case .messageMediaToDo(let flags, let todo, let completions):
+                return ("messageMediaToDo", [("flags", flags as Any), ("todo", todo as Any), ("completions", completions as Any)])
                 case .messageMediaUnsupported:
                 return ("messageMediaUnsupported", [])
                 case .messageMediaVenue(let geo, let title, let address, let provider, let venueId, let venueType):
@@ -990,14 +1007,22 @@ public extension Api {
             if Int(_1!) & Int(1 << 5) != 0 {if let _ = reader.readInt32() {
                 _3 = Api.parseVector(reader, elementSignature: 0, elementType: Api.Document.self)
             } }
-            var _4: Int32?
-            if Int(_1!) & Int(1 << 2) != 0 {_4 = reader.readInt32() }
+            var _4: Api.Photo?
+            if Int(_1!) & Int(1 << 9) != 0 {if let signature = reader.readInt32() {
+                _4 = Api.parse(reader, signature: signature) as? Api.Photo
+            } }
+            var _5: Int32?
+            if Int(_1!) & Int(1 << 10) != 0 {_5 = reader.readInt32() }
+            var _6: Int32?
+            if Int(_1!) & Int(1 << 2) != 0 {_6 = reader.readInt32() }
             let _c1 = _1 != nil
             let _c2 = (Int(_1!) & Int(1 << 0) == 0) || _2 != nil
             let _c3 = (Int(_1!) & Int(1 << 5) == 0) || _3 != nil
-            let _c4 = (Int(_1!) & Int(1 << 2) == 0) || _4 != nil
-            if _c1 && _c2 && _c3 && _c4 {
-                return Api.MessageMedia.messageMediaDocument(flags: _1!, document: _2, altDocuments: _3, ttlSeconds: _4)
+            let _c4 = (Int(_1!) & Int(1 << 9) == 0) || _4 != nil
+            let _c5 = (Int(_1!) & Int(1 << 10) == 0) || _5 != nil
+            let _c6 = (Int(_1!) & Int(1 << 2) == 0) || _6 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 {
+                return Api.MessageMedia.messageMediaDocument(flags: _1!, document: _2, altDocuments: _3, videoCover: _4, videoTimestamp: _5, ttlSeconds: _6)
             }
             else {
                 return nil
@@ -1247,6 +1272,27 @@ public extension Api {
             let _c4 = (Int(_1!) & Int(1 << 0) == 0) || _4 != nil
             if _c1 && _c2 && _c3 && _c4 {
                 return Api.MessageMedia.messageMediaStory(flags: _1!, peer: _2!, id: _3!, story: _4)
+            }
+            else {
+                return nil
+            }
+        }
+        public static func parse_messageMediaToDo(_ reader: BufferReader) -> MessageMedia? {
+            var _1: Int32?
+            _1 = reader.readInt32()
+            var _2: Api.TodoList?
+            if let signature = reader.readInt32() {
+                _2 = Api.parse(reader, signature: signature) as? Api.TodoList
+            }
+            var _3: [Api.TodoCompletion]?
+            if Int(_1!) & Int(1 << 0) != 0 {if let _ = reader.readInt32() {
+                _3 = Api.parseVector(reader, elementSignature: 0, elementType: Api.TodoCompletion.self)
+            } }
+            let _c1 = _1 != nil
+            let _c2 = _2 != nil
+            let _c3 = (Int(_1!) & Int(1 << 0) == 0) || _3 != nil
+            if _c1 && _c2 && _c3 {
+                return Api.MessageMedia.messageMediaToDo(flags: _1!, todo: _2!, completions: _3)
             }
             else {
                 return nil

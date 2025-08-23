@@ -230,14 +230,14 @@ public extension Api {
 }
 public extension Api {
     indirect enum DraftMessage: TypeConstructorDescription {
-        case draftMessage(flags: Int32, replyTo: Api.InputReplyTo?, message: String, entities: [Api.MessageEntity]?, media: Api.InputMedia?, date: Int32, effect: Int64?)
+        case draftMessage(flags: Int32, replyTo: Api.InputReplyTo?, message: String, entities: [Api.MessageEntity]?, media: Api.InputMedia?, date: Int32, effect: Int64?, suggestedPost: Api.SuggestedPost?)
         case draftMessageEmpty(flags: Int32, date: Int32?)
     
     public func serialize(_ buffer: Buffer, _ boxed: Swift.Bool) {
     switch self {
-                case .draftMessage(let flags, let replyTo, let message, let entities, let media, let date, let effect):
+                case .draftMessage(let flags, let replyTo, let message, let entities, let media, let date, let effect, let suggestedPost):
                     if boxed {
-                        buffer.appendInt32(761606687)
+                        buffer.appendInt32(-1763006997)
                     }
                     serializeInt32(flags, buffer: buffer, boxed: false)
                     if Int(flags) & Int(1 << 4) != 0 {replyTo!.serialize(buffer, true)}
@@ -250,6 +250,7 @@ public extension Api {
                     if Int(flags) & Int(1 << 5) != 0 {media!.serialize(buffer, true)}
                     serializeInt32(date, buffer: buffer, boxed: false)
                     if Int(flags) & Int(1 << 7) != 0 {serializeInt64(effect!, buffer: buffer, boxed: false)}
+                    if Int(flags) & Int(1 << 8) != 0 {suggestedPost!.serialize(buffer, true)}
                     break
                 case .draftMessageEmpty(let flags, let date):
                     if boxed {
@@ -263,8 +264,8 @@ public extension Api {
     
     public func descriptionFields() -> (String, [(String, Any)]) {
         switch self {
-                case .draftMessage(let flags, let replyTo, let message, let entities, let media, let date, let effect):
-                return ("draftMessage", [("flags", flags as Any), ("replyTo", replyTo as Any), ("message", message as Any), ("entities", entities as Any), ("media", media as Any), ("date", date as Any), ("effect", effect as Any)])
+                case .draftMessage(let flags, let replyTo, let message, let entities, let media, let date, let effect, let suggestedPost):
+                return ("draftMessage", [("flags", flags as Any), ("replyTo", replyTo as Any), ("message", message as Any), ("entities", entities as Any), ("media", media as Any), ("date", date as Any), ("effect", effect as Any), ("suggestedPost", suggestedPost as Any)])
                 case .draftMessageEmpty(let flags, let date):
                 return ("draftMessageEmpty", [("flags", flags as Any), ("date", date as Any)])
     }
@@ -291,6 +292,10 @@ public extension Api {
             _6 = reader.readInt32()
             var _7: Int64?
             if Int(_1!) & Int(1 << 7) != 0 {_7 = reader.readInt64() }
+            var _8: Api.SuggestedPost?
+            if Int(_1!) & Int(1 << 8) != 0 {if let signature = reader.readInt32() {
+                _8 = Api.parse(reader, signature: signature) as? Api.SuggestedPost
+            } }
             let _c1 = _1 != nil
             let _c2 = (Int(_1!) & Int(1 << 4) == 0) || _2 != nil
             let _c3 = _3 != nil
@@ -298,8 +303,9 @@ public extension Api {
             let _c5 = (Int(_1!) & Int(1 << 5) == 0) || _5 != nil
             let _c6 = _6 != nil
             let _c7 = (Int(_1!) & Int(1 << 7) == 0) || _7 != nil
-            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 {
-                return Api.DraftMessage.draftMessage(flags: _1!, replyTo: _2, message: _3!, entities: _4, media: _5, date: _6!, effect: _7)
+            let _c8 = (Int(_1!) & Int(1 << 8) == 0) || _8 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 {
+                return Api.DraftMessage.draftMessage(flags: _1!, replyTo: _2, message: _3!, entities: _4, media: _5, date: _6!, effect: _7, suggestedPost: _8)
             }
             else {
                 return nil
@@ -796,17 +802,36 @@ public extension Api {
 }
 public extension Api {
     enum EmojiStatus: TypeConstructorDescription {
-        case emojiStatus(documentId: Int64)
+        case emojiStatus(flags: Int32, documentId: Int64, until: Int32?)
+        case emojiStatusCollectible(flags: Int32, collectibleId: Int64, documentId: Int64, title: String, slug: String, patternDocumentId: Int64, centerColor: Int32, edgeColor: Int32, patternColor: Int32, textColor: Int32, until: Int32?)
         case emojiStatusEmpty
-        case emojiStatusUntil(documentId: Int64, until: Int32)
+        case inputEmojiStatusCollectible(flags: Int32, collectibleId: Int64, until: Int32?)
     
     public func serialize(_ buffer: Buffer, _ boxed: Swift.Bool) {
     switch self {
-                case .emojiStatus(let documentId):
+                case .emojiStatus(let flags, let documentId, let until):
                     if boxed {
-                        buffer.appendInt32(-1835310691)
+                        buffer.appendInt32(-402717046)
                     }
+                    serializeInt32(flags, buffer: buffer, boxed: false)
                     serializeInt64(documentId, buffer: buffer, boxed: false)
+                    if Int(flags) & Int(1 << 0) != 0 {serializeInt32(until!, buffer: buffer, boxed: false)}
+                    break
+                case .emojiStatusCollectible(let flags, let collectibleId, let documentId, let title, let slug, let patternDocumentId, let centerColor, let edgeColor, let patternColor, let textColor, let until):
+                    if boxed {
+                        buffer.appendInt32(1904500795)
+                    }
+                    serializeInt32(flags, buffer: buffer, boxed: false)
+                    serializeInt64(collectibleId, buffer: buffer, boxed: false)
+                    serializeInt64(documentId, buffer: buffer, boxed: false)
+                    serializeString(title, buffer: buffer, boxed: false)
+                    serializeString(slug, buffer: buffer, boxed: false)
+                    serializeInt64(patternDocumentId, buffer: buffer, boxed: false)
+                    serializeInt32(centerColor, buffer: buffer, boxed: false)
+                    serializeInt32(edgeColor, buffer: buffer, boxed: false)
+                    serializeInt32(patternColor, buffer: buffer, boxed: false)
+                    serializeInt32(textColor, buffer: buffer, boxed: false)
+                    if Int(flags) & Int(1 << 0) != 0 {serializeInt32(until!, buffer: buffer, boxed: false)}
                     break
                 case .emojiStatusEmpty:
                     if boxed {
@@ -814,33 +839,83 @@ public extension Api {
                     }
                     
                     break
-                case .emojiStatusUntil(let documentId, let until):
+                case .inputEmojiStatusCollectible(let flags, let collectibleId, let until):
                     if boxed {
-                        buffer.appendInt32(-97474361)
+                        buffer.appendInt32(118758847)
                     }
-                    serializeInt64(documentId, buffer: buffer, boxed: false)
-                    serializeInt32(until, buffer: buffer, boxed: false)
+                    serializeInt32(flags, buffer: buffer, boxed: false)
+                    serializeInt64(collectibleId, buffer: buffer, boxed: false)
+                    if Int(flags) & Int(1 << 0) != 0 {serializeInt32(until!, buffer: buffer, boxed: false)}
                     break
     }
     }
     
     public func descriptionFields() -> (String, [(String, Any)]) {
         switch self {
-                case .emojiStatus(let documentId):
-                return ("emojiStatus", [("documentId", documentId as Any)])
+                case .emojiStatus(let flags, let documentId, let until):
+                return ("emojiStatus", [("flags", flags as Any), ("documentId", documentId as Any), ("until", until as Any)])
+                case .emojiStatusCollectible(let flags, let collectibleId, let documentId, let title, let slug, let patternDocumentId, let centerColor, let edgeColor, let patternColor, let textColor, let until):
+                return ("emojiStatusCollectible", [("flags", flags as Any), ("collectibleId", collectibleId as Any), ("documentId", documentId as Any), ("title", title as Any), ("slug", slug as Any), ("patternDocumentId", patternDocumentId as Any), ("centerColor", centerColor as Any), ("edgeColor", edgeColor as Any), ("patternColor", patternColor as Any), ("textColor", textColor as Any), ("until", until as Any)])
                 case .emojiStatusEmpty:
                 return ("emojiStatusEmpty", [])
-                case .emojiStatusUntil(let documentId, let until):
-                return ("emojiStatusUntil", [("documentId", documentId as Any), ("until", until as Any)])
+                case .inputEmojiStatusCollectible(let flags, let collectibleId, let until):
+                return ("inputEmojiStatusCollectible", [("flags", flags as Any), ("collectibleId", collectibleId as Any), ("until", until as Any)])
     }
     }
     
         public static func parse_emojiStatus(_ reader: BufferReader) -> EmojiStatus? {
-            var _1: Int64?
-            _1 = reader.readInt64()
+            var _1: Int32?
+            _1 = reader.readInt32()
+            var _2: Int64?
+            _2 = reader.readInt64()
+            var _3: Int32?
+            if Int(_1!) & Int(1 << 0) != 0 {_3 = reader.readInt32() }
             let _c1 = _1 != nil
-            if _c1 {
-                return Api.EmojiStatus.emojiStatus(documentId: _1!)
+            let _c2 = _2 != nil
+            let _c3 = (Int(_1!) & Int(1 << 0) == 0) || _3 != nil
+            if _c1 && _c2 && _c3 {
+                return Api.EmojiStatus.emojiStatus(flags: _1!, documentId: _2!, until: _3)
+            }
+            else {
+                return nil
+            }
+        }
+        public static func parse_emojiStatusCollectible(_ reader: BufferReader) -> EmojiStatus? {
+            var _1: Int32?
+            _1 = reader.readInt32()
+            var _2: Int64?
+            _2 = reader.readInt64()
+            var _3: Int64?
+            _3 = reader.readInt64()
+            var _4: String?
+            _4 = parseString(reader)
+            var _5: String?
+            _5 = parseString(reader)
+            var _6: Int64?
+            _6 = reader.readInt64()
+            var _7: Int32?
+            _7 = reader.readInt32()
+            var _8: Int32?
+            _8 = reader.readInt32()
+            var _9: Int32?
+            _9 = reader.readInt32()
+            var _10: Int32?
+            _10 = reader.readInt32()
+            var _11: Int32?
+            if Int(_1!) & Int(1 << 0) != 0 {_11 = reader.readInt32() }
+            let _c1 = _1 != nil
+            let _c2 = _2 != nil
+            let _c3 = _3 != nil
+            let _c4 = _4 != nil
+            let _c5 = _5 != nil
+            let _c6 = _6 != nil
+            let _c7 = _7 != nil
+            let _c8 = _8 != nil
+            let _c9 = _9 != nil
+            let _c10 = _10 != nil
+            let _c11 = (Int(_1!) & Int(1 << 0) == 0) || _11 != nil
+            if _c1 && _c2 && _c3 && _c4 && _c5 && _c6 && _c7 && _c8 && _c9 && _c10 && _c11 {
+                return Api.EmojiStatus.emojiStatusCollectible(flags: _1!, collectibleId: _2!, documentId: _3!, title: _4!, slug: _5!, patternDocumentId: _6!, centerColor: _7!, edgeColor: _8!, patternColor: _9!, textColor: _10!, until: _11)
             }
             else {
                 return nil
@@ -849,15 +924,18 @@ public extension Api {
         public static func parse_emojiStatusEmpty(_ reader: BufferReader) -> EmojiStatus? {
             return Api.EmojiStatus.emojiStatusEmpty
         }
-        public static func parse_emojiStatusUntil(_ reader: BufferReader) -> EmojiStatus? {
-            var _1: Int64?
-            _1 = reader.readInt64()
-            var _2: Int32?
-            _2 = reader.readInt32()
+        public static func parse_inputEmojiStatusCollectible(_ reader: BufferReader) -> EmojiStatus? {
+            var _1: Int32?
+            _1 = reader.readInt32()
+            var _2: Int64?
+            _2 = reader.readInt64()
+            var _3: Int32?
+            if Int(_1!) & Int(1 << 0) != 0 {_3 = reader.readInt32() }
             let _c1 = _1 != nil
             let _c2 = _2 != nil
-            if _c1 && _c2 {
-                return Api.EmojiStatus.emojiStatusUntil(documentId: _1!, until: _2!)
+            let _c3 = (Int(_1!) & Int(1 << 0) == 0) || _3 != nil
+            if _c1 && _c2 && _c3 {
+                return Api.EmojiStatus.inputEmojiStatusCollectible(flags: _1!, collectibleId: _2!, until: _3)
             }
             else {
                 return nil

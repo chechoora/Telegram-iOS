@@ -21,10 +21,12 @@ internal:
   script:
     - export PATH=/opt/homebrew/opt/ruby/bin:$PATH                                  
     - export PATH=`gem environment gemdir`/bin:$PATH
-    - python3 -u build-system/Make/Make.py remote-build --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --cacheHost="$TELEGRAM_BAZEL_CACHE_HOST" --configurationPath="build-system/appstore-configuration.json" --gitCodesigningRepository="$TELEGRAM_GIT_CODESIGNING_REPOSITORY" --gitCodesigningType=adhoc --configuration=release_arm64
-    - python3 -u build-system/Make/DeployToAppCenter.py --configuration="$TELEGRAM_PRIVATE_DATA_PATH/appcenter-configurations/appcenter-internal.json" --ipa="build/artifacts/Telegram.ipa" --dsyms="build/artifacts/Telegram.DSYMs.zip"
-    - rm -rf build
-    - python3 -u build-system/Make/Make.py remote-build --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --cacheHost="$TELEGRAM_BAZEL_CACHE_HOST" --configurationPath="build-system/appstore-configuration.json" --gitCodesigningRepository="$TELEGRAM_GIT_CODESIGNING_REPOSITORY" --gitCodesigningType=appstore --configuration=release_arm64
+    - python3 -u build-system/Make/Make.py remote-build --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --cacheHost="$TELEGRAM_BAZEL_CACHE_HOST" --configurationPath="build-system/appcenter-configuration.json" --gitCodesigningRepository="$TELEGRAM_GIT_CODESIGNING_REPOSITORY" --gitCodesigningType=adhoc --configuration=release_arm64
+    - python3 -u build-system/Make/DeployToFirebase.py --configuration="$TELEGRAM_PRIVATE_DATA_PATH/firebase-configurations/firebase-internal.json" --ipa="build/artifacts/Telegram.ipa" --dsyms="build/artifacts/Telegram.DSYMs.zip"
+    - rm -rf build-input/configuration-repository-workdir
+    - rm -rf build-input/configuration-repository
+    - python3 -u build-system/Make/Make.py remote-build --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --cacheHost="$TELEGRAM_BAZEL_CACHE_HOST" --configurationPath="$TELEGRAM_PRIVATE_DATA_PATH/build-configurations/enterprise-configuration.json" --gitCodesigningRepository="$TELEGRAM_GIT_CODESIGNING_REPOSITORY" --gitCodesigningType=enterprise --configuration=release_arm64
+    - python3 -u build-system/Make/DeployToFirebase.py --configuration="$TELEGRAM_PRIVATE_DATA_PATH/firebase-configurations/firebase-enterprise.json" --ipa="build/artifacts/Telegram.ipa" --dsyms="build/artifacts/Telegram.DSYMs.zip"
   environment:
     name: internal
   artifacts:
@@ -33,7 +35,7 @@ internal:
       - build/artifacts
     expire_in: 1 week
 
-deploy_internal_testflight:
+internal_testflight:
   tags:
     - ios_internal
   stage: deploy
@@ -42,6 +44,7 @@ deploy_internal_testflight:
   except:
     - tags
   script:
+    - python3 -u build-system/Make/Make.py remote-build --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --cacheHost="$TELEGRAM_BAZEL_CACHE_HOST" --configurationPath="build-system/appstore-configuration.json" --gitCodesigningRepository="$TELEGRAM_GIT_CODESIGNING_REPOSITORY" --gitCodesigningType=appstore --configuration=release_arm64
     - python3 -u build-system/Make/Make.py remote-deploy-testflight --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --ipa="build/artifacts/Telegram.ipa" --dsyms="build/artifacts/Telegram.DSYMs.zip"
   environment:
     name: testflight_llc
@@ -56,7 +59,6 @@ appstore_development:
     - tags
   script:
     - python3 -u build-system/Make/Make.py remote-build --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --cacheHost="$TELEGRAM_BAZEL_CACHE_HOST" --configurationPath="$TELEGRAM_PRIVATE_DATA_PATH/build-configurations/enterprise-configuration.json" --gitCodesigningRepository="$TELEGRAM_GIT_CODESIGNING_REPOSITORY" --gitCodesigningType=enterprise --configuration=release_arm64
-    - python3 -u build-system/Make/DeployToAppCenter.py --configuration="$TELEGRAM_PRIVATE_DATA_PATH/appcenter-configurations/appstore-development.json" --ipa="build/artifacts/Telegram.ipa" --dsyms="build/artifacts/Telegram.DSYMs.zip"
   environment:
     name: appstore-development
   artifacts:
@@ -76,7 +78,6 @@ experimental_i:
     - export PATH=/opt/homebrew/opt/ruby/bin:$PATH                                  
     - export PATH=`gem environment gemdir`/bin:$PATH
     - python3 -u build-system/Make/Make.py remote-build --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --cacheHost="$TELEGRAM_BAZEL_CACHE_HOST" --configurationPath="build-system/appstore-configuration.json" --gitCodesigningRepository="$TELEGRAM_GIT_CODESIGNING_REPOSITORY" --gitCodesigningType=adhoc --configuration=release_arm64
-    - python3 -u build-system/Make/DeployToAppCenter.py --configuration="$TELEGRAM_PRIVATE_DATA_PATH/appcenter-configurations/appcenter-experimental.json" --ipa="build/artifacts/Telegram.ipa" --dsyms="build/artifacts/Telegram.DSYMs.zip"
   environment:
     name: experimental
   artifacts:
@@ -94,7 +95,6 @@ experimental:
     - tags
   script:
     - python3 -u build-system/Make/Make.py remote-build --darwinContainers="$DARWIN_CONTAINERS" --darwinContainersHost="$DARWIN_CONTAINERS_HOST" --cacheHost="$TELEGRAM_BAZEL_CACHE_HOST" --configurationPath="$TELEGRAM_PRIVATE_DATA_PATH/build-configurations/enterprise-configuration.json" --gitCodesigningRepository="$TELEGRAM_GIT_CODESIGNING_REPOSITORY" --gitCodesigningType=enterprise --configuration=release_arm64
-    - python3 -u build-system/Make/DeployToAppCenter.py --configuration="$TELEGRAM_PRIVATE_DATA_PATH/appcenter-configurations/appcenter-experimental2.json" --ipa="build/artifacts/Telegram.ipa" --dsyms="build/artifacts/Telegram.DSYMs.zip"
   environment:
     name: experimental-2
   artifacts:

@@ -111,7 +111,6 @@ import ChatMessageAnimatedStickerItemNode
 import ChatMessageBubbleItemNode
 import ChatNavigationButton
 import WebsiteType
-import ChatQrCodeScreen
 import PeerInfoScreen
 import MediaEditorScreen
 import WallpaperGalleryScreen
@@ -123,6 +122,7 @@ import PeerNameColorScreen
 import ChatEmptyNode
 import ChatMediaInputStickerGridItem
 import AdsInfoScreen
+import Photos
 
 extension ChatControllerImpl {
     public func presentThemeSelection() {
@@ -168,7 +168,7 @@ extension ChatControllerImpl {
             }
             
             var canResetWallpaper = false
-            if let cachedUserData = strongSelf.peerView?.cachedData as? CachedUserData {
+            if let cachedUserData = strongSelf.contentData?.state.peerView?.cachedData as? CachedUserData {
                 canResetWallpaper = cachedUserData.wallpaper != nil
             }
             

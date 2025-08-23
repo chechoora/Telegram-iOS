@@ -80,6 +80,8 @@ func telegramMediaActionFromApiAction(_ action: Api.MessageAction) -> TelegramMe
         switch call {
         case let .inputGroupCall(id, accessHash):
             return TelegramMediaAction(action: .groupPhoneCall(callId: id, accessHash: accessHash, scheduleDate: nil, duration: duration))
+        case .inputGroupCallSlug, .inputGroupCallInviteMessage:
+            return nil
         }
     case let .messageActionInviteToGroupCall(call, userIds):
         switch call {
@@ -87,6 +89,8 @@ func telegramMediaActionFromApiAction(_ action: Api.MessageAction) -> TelegramMe
             return TelegramMediaAction(action: .inviteToGroupPhoneCall(callId: id, accessHash: accessHash, peerIds: userIds.map { userId in
                 PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(userId))
             }))
+        case .inputGroupCallSlug, .inputGroupCallInviteMessage:
+            return nil
         }
     case let .messageActionSetMessagesTTL(_, period, autoSettingFrom):
         return TelegramMediaAction(action: .messageAutoremoveTimeoutUpdated(period: period, autoSettingSource: autoSettingFrom.flatMap { PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value($0)) }))
@@ -94,6 +98,8 @@ func telegramMediaActionFromApiAction(_ action: Api.MessageAction) -> TelegramMe
         switch call {
         case let .inputGroupCall(id, accessHash):
             return TelegramMediaAction(action: .groupPhoneCall(callId: id, accessHash: accessHash, scheduleDate: scheduleDate, duration: nil))
+        case .inputGroupCallSlug, .inputGroupCallInviteMessage:
+            return nil
         }
     case let .messageActionSetChatTheme(emoji):
         return TelegramMediaAction(action: .setChatTheme(emoji: emoji))
@@ -155,7 +161,7 @@ func telegramMediaActionFromApiAction(_ action: Api.MessageAction) -> TelegramMe
             text = nil
             entities = nil
         }
-        return TelegramMediaAction(action: .giftCode(slug: slug, fromGiveaway: (flags & (1 << 0)) != 0, isUnclaimed: (flags & (1 << 2)) != 0, boostPeerId: boostPeer?.peerId, months: months, currency: currency, amount: amount, cryptoCurrency: cryptoCurrency, cryptoAmount: cryptoAmount, text: text, entities: entities))
+        return TelegramMediaAction(action: .giftCode(slug: slug, fromGiveaway: (flags & (1 << 0)) != 0, isUnclaimed: (flags & (1 << 5)) != 0, boostPeerId: boostPeer?.peerId, months: months, currency: currency, amount: amount, cryptoCurrency: cryptoCurrency, cryptoAmount: cryptoAmount, text: text, entities: entities))
     case let .messageActionGiveawayLaunch(_, stars):
         return TelegramMediaAction(action: .giveawayLaunched(stars: stars))
     case let .messageActionGiveawayResults(flags, winners, unclaimed):
@@ -171,7 +177,7 @@ func telegramMediaActionFromApiAction(_ action: Api.MessageAction) -> TelegramMe
         return TelegramMediaAction(action: .paymentRefunded(peerId: peer.peerId, currency: currency, totalAmount: totalAmount, payload: payload?.makeData(), transactionId: transactionId))
     case let .messageActionPrizeStars(flags, stars, transactionId, boostPeer, giveawayMsgId):
         return TelegramMediaAction(action: .prizeStars(amount: stars, isUnclaimed: (flags & (1 << 2)) != 0, boostPeerId: boostPeer.peerId, transactionId: transactionId, giveawayMessageId: MessageId(peerId: boostPeer.peerId, namespace: Namespaces.Message.Cloud, id: giveawayMsgId)))
-    case let .messageActionStarGift(flags, apiGift, message, convertStars, upgradeMessageId, upgradeStars):
+    case let .messageActionStarGift(flags, apiGift, message, convertStars, upgradeMessageId, upgradeStars, fromId, peer, savedId):
         let text: String?
         let entities: [MessageTextEntity]?
         switch message {
@@ -185,28 +191,99 @@ func telegramMediaActionFromApiAction(_ action: Api.MessageAction) -> TelegramMe
         guard let gift = StarGift(apiStarGift: apiGift) else {
             return nil
         }
-        return TelegramMediaAction(action: .starGift(gift: gift, convertStars: convertStars, text: text, entities: entities, nameHidden: (flags & (1 << 0)) != 0, savedToProfile: (flags & (1 << 2)) != 0, converted: (flags & (1 << 3)) != 0, upgraded: (flags & (1 << 5)) != 0, canUpgrade: (flags & (1 << 10)) != 0, upgradeStars: upgradeStars, isRefunded: (flags & (1 << 9)) != 0, upgradeMessageId: upgradeMessageId))
-    case let .messageActionStarGiftUnique(flags, apiGift, canExportAt, transferStars):
+        return TelegramMediaAction(action: .starGift(gift: gift, convertStars: convertStars, text: text, entities: entities, nameHidden: (flags & (1 << 0)) != 0, savedToProfile: (flags & (1 << 2)) != 0, converted: (flags & (1 << 3)) != 0, upgraded: (flags & (1 << 5)) != 0, canUpgrade: (flags & (1 << 10)) != 0, upgradeStars: upgradeStars, isRefunded: (flags & (1 << 9)) != 0, upgradeMessageId: upgradeMessageId, peerId: peer?.peerId, senderId: fromId?.peerId, savedId: savedId))
+    case let .messageActionStarGiftUnique(flags, apiGift, canExportAt, transferStars, fromId, peer, savedId, resaleAmount, canTransferDate, canResaleDate):
         guard let gift = StarGift(apiStarGift: apiGift) else {
             return nil
         }
-        return TelegramMediaAction(action: .starGiftUnique(gift: gift, isUpgrade: (flags & (1 << 0)) != 0, isTransferred: (flags & (1 << 1)) != 0, savedToProfile: (flags & (1 << 2)) != 0, canExportDate: canExportAt, transferStars: transferStars, isRefunded: (flags & (1 << 5)) != 0))
+        return TelegramMediaAction(action: .starGiftUnique(gift: gift, isUpgrade: (flags & (1 << 0)) != 0, isTransferred: (flags & (1 << 1)) != 0, savedToProfile: (flags & (1 << 2)) != 0, canExportDate: canExportAt, transferStars: transferStars, isRefunded: (flags & (1 << 5)) != 0, peerId: peer?.peerId, senderId: fromId?.peerId, savedId: savedId, resaleAmount: resaleAmount.flatMap { CurrencyAmount(apiAmount: $0) }, canTransferDate: canTransferDate, canResaleDate: canResaleDate))
+    case let .messageActionPaidMessagesRefunded(count, stars):
+        return TelegramMediaAction(action: .paidMessagesRefunded(count: count, stars: stars))
+    case let .messageActionPaidMessagesPrice(flags, stars):
+        let broadcastMessagesAllowed = (flags & (1 << 0)) != 0
+        return TelegramMediaAction(action: .paidMessagesPriceEdited(stars: stars, broadcastMessagesAllowed: broadcastMessagesAllowed))
+    case let .messageActionConferenceCall(flags, callId, duration, otherParticipants):
+        let isMissed = (flags & (1 << 0)) != 0
+        let isActive = (flags & (1 << 1)) != 0
+        let isVideo = (flags & (1 << 4)) != 0
+        
+        var mappedFlags = TelegramMediaActionType.ConferenceCall.Flags()
+        if isMissed {
+            mappedFlags.insert(.isMissed)
+        }
+        if isActive {
+            mappedFlags.insert(.isActive)
+        }
+        if isVideo {
+            mappedFlags.insert(.isVideo)
+        }
+        
+        return TelegramMediaAction(action: .conferenceCall(TelegramMediaActionType.ConferenceCall(
+            callId: callId,
+            duration: duration,
+            flags: mappedFlags,
+            otherParticipants: otherParticipants.flatMap({ return $0.map(\.peerId) }) ?? []
+        )))
+    case let .messageActionTodoCompletions(completed, incompleted):
+        return TelegramMediaAction(action: .todoCompletions(completed: completed, incompleted: incompleted))
+    case let .messageActionTodoAppendTasks(list):
+        return TelegramMediaAction(action: .todoAppendTasks(list.map { TelegramMediaTodo.Item(apiItem: $0) }))
+    case let .messageActionSuggestedPostApproval(flags, rejectComment, scheduleDate, starsAmount):
+        let status: TelegramMediaActionType.SuggestedPostApprovalStatus
+        if (flags & (1 << 0)) != 0 {
+            let reason: TelegramMediaActionType.SuggestedPostApprovalStatus.RejectionReason
+            if (flags & (1 << 1)) != 0 {
+                let balanceNeeded: CurrencyAmount
+                switch starsAmount {
+                case .none:
+                    balanceNeeded = CurrencyAmount(amount: .zero, currency: .stars)
+                case let .starsAmount(amount, nanos):
+                    balanceNeeded = CurrencyAmount(amount: StarsAmount(value: amount, nanos: nanos), currency: .stars)
+                case let .starsTonAmount(amount):
+                    balanceNeeded = CurrencyAmount(amount: StarsAmount(value: amount, nanos: 0), currency: .ton)
+                }
+                reason = .lowBalance(balanceNeeded: balanceNeeded)
+            } else {
+                reason = .generic
+            }
+            status = .rejected(reason: reason, comment: rejectComment)
+        } else if (flags & (1 << 1)) != 0 {
+            let amountValue: CurrencyAmount
+            switch starsAmount {
+            case .none:
+                amountValue = CurrencyAmount(amount: .zero, currency: .stars)
+            case let .starsAmount(amount, nanos):
+                amountValue = CurrencyAmount(amount: StarsAmount(value: amount, nanos: nanos), currency: .stars)
+            case let .starsTonAmount(amount):
+                amountValue = CurrencyAmount(amount: StarsAmount(value: amount, nanos: 0), currency: .ton)
+            }
+            status = .rejected(reason: .lowBalance(balanceNeeded: amountValue), comment: nil)
+        } else {
+            status = .approved(timestamp: scheduleDate, amount: starsAmount.flatMap(CurrencyAmount.init(apiAmount:)))
+        }
+        return TelegramMediaAction(action: .suggestedPostApprovalStatus(status: status))
+    case let .messageActionGiftTon(_, currency, amount, cryptoCurrency, cryptoAmount, transactionId):
+        return TelegramMediaAction(action: .giftTon(currency: currency, amount: amount, cryptoCurrency: cryptoCurrency, cryptoAmount: cryptoAmount, transactionId: transactionId))
+    case let .messageActionSuggestedPostSuccess(price):
+        return TelegramMediaAction(action: .suggestedPostSuccess(amount: CurrencyAmount(apiAmount: price)))
+    case let .messageActionSuggestedPostRefund(flags):
+        return TelegramMediaAction(action: .suggestedPostRefund(TelegramMediaActionType.SuggestedPostRefund(isUserInitiated: (flags & (1 << 0)) != 0)))
     }
 }
 
 extension PhoneCallDiscardReason {
     init(apiReason: Api.PhoneCallDiscardReason) {
         switch apiReason {
-            case .phoneCallDiscardReasonBusy:
-                self = .busy
-            case .phoneCallDiscardReasonDisconnect:
-                self = .disconnect
-            case .phoneCallDiscardReasonHangup:
-                self = .hangup
-            case .phoneCallDiscardReasonMissed:
-                self = .missed
-            case .phoneCallDiscardReasonAllowGroupCall:
-                self = .hangup
+        case .phoneCallDiscardReasonBusy:
+            self = .busy
+        case .phoneCallDiscardReasonDisconnect:
+            self = .disconnect
+        case .phoneCallDiscardReasonHangup:
+            self = .hangup
+        case .phoneCallDiscardReasonMissed:
+            self = .missed
+        case .phoneCallDiscardReasonMigrateConferenceCall:
+            self = .hangup
         }
     }
 }

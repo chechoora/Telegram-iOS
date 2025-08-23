@@ -142,8 +142,22 @@ public final class SharedWakeupManager {
                 |> distinctUntilChanged
                 
                 let hasActiveGroupCalls = (callManager?.currentGroupCallSignal ?? .single(nil))
-                |> map { call in
-                    return call?.accountContext.account.id == account.id
+                |> map { call -> Bool in
+                    guard let call else {
+                        return false
+                    }
+                    switch call {
+                    case let .conferenceSource(conferenceSource):
+                        return conferenceSource.context.account.id == account.id
+                    case let .group(groupCall):
+                        return groupCall.accountContext.account.id == account.id
+                    }
+                }
+                |> distinctUntilChanged
+                
+                let keepUpdatesForCalls = combineLatest(queue: .mainQueue(), hasActiveCalls, hasActiveGroupCalls)
+                |> map { hasActiveCalls, hasActiveGroupCalls -> Bool in
+                    return hasActiveCalls || hasActiveGroupCalls
                 }
                 |> distinctUntilChanged
                 
@@ -173,9 +187,9 @@ public final class SharedWakeupManager {
                 
                 let userInterfaceInUse = accountUserInterfaceInUse(account.id)
                 
-                return combineLatest(queue: .mainQueue(), account.importantTasksRunning, notificationManager?.isPollingState(accountId: account.id) ?? .single(false), hasActiveAudio, hasActiveCalls, hasActiveLiveLocationPolling, hasWatchTasks, userInterfaceInUse)
-                |> map { importantTasksRunning, isPollingState, hasActiveAudio, hasActiveCalls, hasActiveLiveLocationPolling, hasWatchTasks, userInterfaceInUse -> (Account, Bool, AccountTasks) in
-                    return (account, primary?.id == account.id, AccountTasks(stateSynchronization: isPollingState, importantTasks: importantTasksRunning, backgroundLocation: hasActiveLiveLocationPolling, backgroundDownloads: false, backgroundAudio: hasActiveAudio, activeCalls: hasActiveCalls, watchTasks: hasWatchTasks, userInterfaceInUse: userInterfaceInUse))
+                return combineLatest(queue: .mainQueue(), account.importantTasksRunning, notificationManager?.isPollingState(accountId: account.id) ?? .single(false), hasActiveAudio, keepUpdatesForCalls, hasActiveLiveLocationPolling, hasWatchTasks, userInterfaceInUse)
+                |> map { importantTasksRunning, isPollingState, hasActiveAudio, keepUpdatesForCalls, hasActiveLiveLocationPolling, hasWatchTasks, userInterfaceInUse -> (Account, Bool, AccountTasks) in
+                    return (account, primary?.id == account.id, AccountTasks(stateSynchronization: isPollingState, importantTasks: importantTasksRunning, backgroundLocation: hasActiveLiveLocationPolling, backgroundDownloads: false, backgroundAudio: hasActiveAudio, activeCalls: keepUpdatesForCalls, watchTasks: hasWatchTasks, userInterfaceInUse: userInterfaceInUse))
                 }
             }
             return combineLatest(signals)

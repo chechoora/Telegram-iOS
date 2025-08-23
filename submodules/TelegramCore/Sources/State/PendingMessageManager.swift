@@ -63,6 +63,8 @@ private final class PendingMessageContext {
     var error: PendingMessageFailureReason?
     var statusSubscribers = Bag<(PendingMessageStatus?, PendingMessageFailureReason?) -> Void>()
     var forcedReuploadOnce: Bool = false
+    let postponeDisposable = MetaDisposable()
+    var postponeSending = false
 }
 
 public enum PendingMessageFailureReason {
@@ -252,6 +254,7 @@ public final class PendingMessageManager {
                     context.sendDisposable.dispose()
                     context.uploadDisposable.dispose()
                     context.activityDisposable.dispose()
+                    context.postponeDisposable.dispose()
                     
                     if context.status != nil {
                         context.status = nil
@@ -486,7 +489,10 @@ public final class PendingMessageManager {
 
                 
                 for (messageContext, message, type, contentUploadSignal) in messagesToUpload {
-                    if strongSelf.canBeginUploadingMessage(id: message.id, type: type) {
+                    if let paidStarsAttribute = message.paidStarsAttribute, paidStarsAttribute.postponeSending {
+                        strongSelf.beginWaitingForPostponedMessageCommit(messageContext: messageContext, id: message.id)
+                    }
+                    if strongSelf.canBeginUploadingMessage(id: message.id, type: type), !messageContext.postponeSending {
                         strongSelf.beginUploadingMessage(messageContext: messageContext, id: message.id, threadId: message.threadId, groupId: message.groupingKey, uploadSignal: contentUploadSignal)
                     } else {
                         messageContext.state = .waitingForUploadToStart(groupId: message.groupingKey, upload: contentUploadSignal)
@@ -663,6 +669,33 @@ public final class PendingMessageManager {
         messageContext.state = .collectingInfo(message: message)
     }
     
+    private func beginWaitingForPostponedMessageCommit(messageContext: PendingMessageContext, id: MessageId) {
+        messageContext.postponeSending = true
+        
+        let signal: Signal<Void, NoError> = self.postbox.transaction { transaction -> Void in
+            transaction.setPendingMessageAction(type: .sendPostponedPaidMessage, id: id, action: PostponeSendPaidMessageAction(randomId: Int64.random(in: Int64.min ... Int64.max)))
+        }
+        |> mapToSignal { _ in
+            return self.stateManager.commitSendPendingPaidMessage
+            |> filter {
+                $0 == id
+            }
+            |> take(1)
+            |> map { _ in
+                Void()
+            }
+        }
+        |> deliverOn(self.queue)
+        
+        messageContext.postponeDisposable.set(signal.start(next: { [weak self] _ in
+            guard let self else {
+                return
+            }
+            messageContext.postponeSending = false
+            self.updateWaitingUploads(peerId: id.peerId)
+        }))
+    }
+    
     private func beginUploadingMessage(messageContext: PendingMessageContext, id: MessageId, threadId: Int64?, groupId: Int64?, uploadSignal: Signal<PendingMessageUploadedContentResult, PendingMessageUploadError>) {
         messageContext.state = .uploading(groupId: groupId)
         
@@ -740,7 +773,7 @@ public final class PendingMessageManager {
         loop: for contextId in messageIdsForPeer {
             let context = self.messageContexts[contextId]!
             if case let .waitingForUploadToStart(groupId, uploadSignal) = context.state {
-                if self.canBeginUploadingMessage(id: contextId, type: context.contentType ?? .media) {
+                if self.canBeginUploadingMessage(id: contextId, type: context.contentType ?? .media), !context.postponeSending {
                     context.state = .uploading(groupId: groupId)
                     let status = PendingMessageStatus(isRunning: true, progress: PendingMessageStatus.Progress(progress: 0.0))
                     context.status = status
@@ -821,10 +854,14 @@ public final class PendingMessageManager {
                 var replyPeerId: PeerId?
                 var replyQuote: EngineMessageReplyQuote?
                 var replyToStoryId: StoryId?
+                var replyTodoItemId: Int32?
                 var scheduleTime: Int32?
+                var videoTimestamp: Int32?
                 var sendAsPeerId: PeerId?
                 var quickReply: OutgoingQuickReplyMessageAttribute?
                 var messageEffect: EffectMessageAttribute?
+                var allowPaidStars: Int64?
+                var suggestedPost: Api.SuggestedPost?
                 
                 var flags: Int32 = 0
                 
@@ -837,6 +874,7 @@ public final class PendingMessageManager {
                         if replyAttribute.isQuote {
                             replyQuote = replyAttribute.quote
                         }
+                        replyTodoItemId = replyAttribute.todoItemId
                     } else if let attribute = attribute as? ReplyStoryAttribute {
                         replyToStoryId = attribute.storyId
                     } else if let _ = attribute as? ForwardSourceInfoAttribute {
@@ -859,6 +897,12 @@ public final class PendingMessageManager {
                         messageEffect = attribute
                     } else if let _ = attribute as? InvertMediaMessageAttribute {
                         flags |= Int32(1 << 16)
+                    } else if let attribute = attribute as? ForwardVideoTimestampAttribute {
+                        videoTimestamp = attribute.timestamp
+                    } else if let attribute = attribute as? PaidStarsMessageAttribute {
+                        allowPaidStars = attribute.stars.value * Int64(messages.count)
+                    } else if let attribute = attribute as? SuggestedPostMessageAttribute {
+                        suggestedPost = attribute.apiSuggestedPost(fixMinTime: Int32(Date().timeIntervalSince1970 + 10))
                     }
                 }
                                 
@@ -872,6 +916,9 @@ public final class PendingMessageManager {
                     }
                     if hideCaptions {
                         flags |= (1 << 12)
+                    }
+                    if videoTimestamp != nil {
+                        flags |= Int32(1 << 20)
                     }
                     
                     var sendAsInputPeer: Api.InputPeer?
@@ -904,9 +951,16 @@ public final class PendingMessageManager {
                     }
                     
                     var topMsgId: Int32?
+                    var monoforumPeerId: Api.InputPeer?
                     if let threadId = messages[0].0.threadId {
-                        flags |= Int32(1 << 9)
-                        topMsgId = Int32(clamping: threadId)
+                        if let channel = peer as? TelegramChannel, channel.flags.contains(.isMonoforum) {
+                            if let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = transaction.getPeer(linkedMonoforumId) as? TelegramChannel, mainChannel.hasPermission(.manageDirect) {
+                                monoforumPeerId = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer)
+                            }
+                        } else {
+                            flags |= Int32(1 << 9)
+                            topMsgId = Int32(clamping: threadId)
+                        }
                     }
                     
                     var quickReplyShortcut: Api.InputQuickReplyShortcut?
@@ -919,6 +973,20 @@ public final class PendingMessageManager {
                         flags |= 1 << 17
                     }
                     
+                    if let _ = allowPaidStars {
+                        flags |= 1 << 21
+                    }
+                    
+                    var replyTo: Api.InputReplyTo?
+                    if let monoforumPeerId {
+                        replyTo = .inputReplyToMonoForum(monoforumPeerId: monoforumPeerId)
+                        flags |= 1 << 22
+                    }
+                    
+                    if suggestedPost != nil {
+                        flags |= 1 << 23
+                    }
+                    
                     let forwardPeerIds = Set(forwardIds.map { $0.0.peerId })
                     if forwardPeerIds.count != 1 {
                         assertionFailure()
@@ -926,7 +994,7 @@ public final class PendingMessageManager {
                     } else if let inputSourcePeerId = forwardPeerIds.first, let inputSourcePeer = transaction.getPeer(inputSourcePeerId).flatMap(apiInputPeer) {
                         let dependencyTag = PendingMessageRequestDependencyTag(messageId: messages[0].0.id)
 
-                        sendMessageRequest = network.request(Api.functions.messages.forwardMessages(flags: flags, fromPeer: inputSourcePeer, id: forwardIds.map { $0.0.id }, randomId: forwardIds.map { $0.1 }, toPeer: inputPeer, topMsgId: topMsgId, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut), tag: dependencyTag)
+                        sendMessageRequest = network.request(Api.functions.messages.forwardMessages(flags: flags, fromPeer: inputSourcePeer, id: forwardIds.map { $0.0.id }, randomId: forwardIds.map { $0.1 }, toPeer: inputPeer, topMsgId: topMsgId, replyTo: replyTo, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, videoTimestamp: videoTimestamp, allowPaidStars: allowPaidStars, suggestedPost: suggestedPost), tag: dependencyTag)
                     } else {
                         assertionFailure()
                         sendMessageRequest = .fail(MTRpcError(errorCode: 400, errorDescription: "Invalid forward source"))
@@ -983,9 +1051,16 @@ public final class PendingMessageManager {
                     }
                     
                     var topMsgId: Int32?
+                    var monoforumPeerId: Api.InputPeer?
                     if let threadId = messages[0].0.threadId {
-                        flags |= Int32(1 << 9)
-                        topMsgId = Int32(clamping: threadId)
+                        if let channel = peer as? TelegramChannel, channel.flags.contains(.isMonoforum) {
+                            if let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = transaction.getPeer(linkedMonoforumId) as? TelegramChannel, mainChannel.hasPermission(.manageDirect) {
+                                monoforumPeerId = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer)
+                            }
+                        } else {
+                            flags |= Int32(1 << 9)
+                            topMsgId = Int32(clamping: threadId)
+                        }
                     }
                     
                     var replyTo: Api.InputReplyTo?
@@ -995,6 +1070,8 @@ public final class PendingMessageManager {
                         var replyFlags: Int32 = 0
                         if topMsgId != nil {
                             replyFlags |= 1 << 0
+                        } else if monoforumPeerId != nil {
+                            replyFlags |= 1 << 5
                         }
                         
                         var replyToPeerId: Api.InputPeer?
@@ -1033,12 +1110,19 @@ public final class PendingMessageManager {
                             }
                         }
                         
-                        replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: topMsgId, replyToPeerId: replyToPeerId, quoteText: quoteText, quoteEntities: quoteEntities, quoteOffset: quoteOffset)
-                    } else if let replyToStoryId = replyToStoryId {
+                        if let _ = replyTodoItemId {
+                            replyFlags |= 1 << 6
+                        }
+                        
+                        replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: topMsgId, replyToPeerId: replyToPeerId, quoteText: quoteText, quoteEntities: quoteEntities, quoteOffset: quoteOffset, monoforumPeerId: monoforumPeerId, todoItemId: replyTodoItemId)
+                    } else if let replyToStoryId {
                         if let inputPeer = transaction.getPeer(replyToStoryId.peerId).flatMap(apiInputPeer) {
                             flags |= 1 << 0
                             replyTo = .inputReplyToStory(peer: inputPeer, storyId: replyToStoryId.id)
                         }
+                    } else if let monoforumPeerId {
+                        flags |= 1 << 0
+                        replyTo = .inputReplyToMonoForum(monoforumPeerId: monoforumPeerId)
                     }
                     
                     var quickReplyShortcut: Api.InputQuickReplyShortcut?
@@ -1057,7 +1141,11 @@ public final class PendingMessageManager {
                         messageEffectId = messageEffect.id
                     }
                     
-                    sendMessageRequest = network.request(Api.functions.messages.sendMultiMedia(flags: flags, peer: inputPeer, replyTo: replyTo, multiMedia: singleMedias, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, effect: messageEffectId))
+                    if let _ = allowPaidStars {
+                        flags |= 1 << 21
+                    }
+                    
+                    sendMessageRequest = network.request(Api.functions.messages.sendMultiMedia(flags: flags, peer: inputPeer, replyTo: replyTo, multiMedia: singleMedias, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, effect: messageEffectId, allowPaidStars: allowPaidStars))
                 }
                 
                 return sendMessageRequest
@@ -1267,13 +1355,29 @@ public final class PendingMessageManager {
                 var replyPeerId: PeerId?
                 var replyQuote: EngineMessageReplyQuote?
                 var replyToStoryId: StoryId?
+                var replyTodoItemId: Int32?
                 var scheduleTime: Int32?
+                var videoTimestamp: Int32?
                 var sendAsPeerId: PeerId?
                 var bubbleUpEmojiOrStickersets = false
                 var quickReply: OutgoingQuickReplyMessageAttribute?
                 var messageEffect: EffectMessageAttribute?
+                var allowPaidStars: Int64?
+                var suggestedPost: Api.SuggestedPost?
                 
                 var flags: Int32 = 0
+                
+                var topMsgId: Int32?
+                var monoforumPeerId: Api.InputPeer?
+                if let threadId = message.threadId {
+                    if let channel = peer as? TelegramChannel, channel.flags.contains(.isMonoforum) {
+                        if let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = transaction.getPeer(linkedMonoforumId) as? TelegramChannel, mainChannel.hasPermission(.manageDirect) {
+                            monoforumPeerId = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer)
+                        }
+                    } else {
+                        topMsgId = Int32(clamping: threadId)
+                    }
+                }
         
                 for attribute in message.attributes {
                     if let replyAttribute = attribute as? ReplyMessageAttribute {
@@ -1284,6 +1388,7 @@ public final class PendingMessageManager {
                         if replyAttribute.isQuote {
                             replyQuote = replyAttribute.quote
                         }
+                        replyTodoItemId = replyAttribute.todoItemId
                     } else if let attribute = attribute as? ReplyStoryAttribute {
                         replyToStoryId = attribute.storyId
                     } else if let outgoingInfo = attribute as? OutgoingMessageInfoAttribute {
@@ -1310,6 +1415,12 @@ public final class PendingMessageManager {
                         quickReply = attribute
                     } else if let attribute = attribute as? EffectMessageAttribute {
                         messageEffect = attribute
+                    } else if let attribute = attribute as? ForwardVideoTimestampAttribute {
+                        videoTimestamp = attribute.timestamp
+                    } else if let attribute = attribute as? PaidStarsMessageAttribute {
+                        allowPaidStars = attribute.stars.value
+                    } else if let attribute = attribute as? SuggestedPostMessageAttribute {
+                        suggestedPost = attribute.apiSuggestedPost(fixMinTime: Int32(Date().timeIntervalSince1970 + 10))
                     }
                 }
                 
@@ -1345,8 +1456,10 @@ public final class PendingMessageManager {
                             flags |= 1 << 0
                             
                             var replyFlags: Int32 = 0
-                            if message.threadId != nil {
+                            if topMsgId != nil {
                                 replyFlags |= 1 << 0
+                            } else if monoforumPeerId != nil {
+                                replyFlags |= 1 << 5
                             }
                             
                             var replyToPeerId: Api.InputPeer?
@@ -1385,12 +1498,18 @@ public final class PendingMessageManager {
                                 }
                             }
                             
-                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: message.threadId.flatMap(Int32.init(clamping:)), replyToPeerId: replyToPeerId, quoteText: quoteText, quoteEntities: quoteEntities, quoteOffset: quoteOffset)
+                            if let _ = replyTodoItemId {
+                                replyFlags |= 1 << 6
+                            }
+                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: topMsgId, replyToPeerId: replyToPeerId, quoteText: quoteText, quoteEntities: quoteEntities, quoteOffset: quoteOffset, monoforumPeerId: monoforumPeerId, todoItemId: replyTodoItemId)
                         } else if let replyToStoryId = replyToStoryId {
                             if let inputPeer = transaction.getPeer(replyToStoryId.peerId).flatMap(apiInputPeer) {
                                 flags |= 1 << 0
                                 replyTo = .inputReplyToStory(peer: inputPeer, storyId: replyToStoryId.id)
                             }
+                        } else if let monoforumPeerId {
+                            flags |= 1 << 0
+                            replyTo = .inputReplyToMonoForum(monoforumPeerId: monoforumPeerId)
                         }
                         if let attribute = message.webpagePreviewAttribute {
                             if attribute.leadingPreview {
@@ -1417,7 +1536,14 @@ public final class PendingMessageManager {
                             messageEffectId = messageEffect.id
                         }
                     
-                        sendMessageRequest = network.requestWithAdditionalInfo(Api.functions.messages.sendMessage(flags: flags, peer: inputPeer, replyTo: replyTo, message: message.text, randomId: uniqueId, replyMarkup: nil, entities: messageEntities, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, effect: messageEffectId), info: .acknowledgement, tag: dependencyTag)
+                        if let _ = allowPaidStars {
+                            flags |= 1 << 21
+                        }
+                        if let _ = suggestedPost {
+                            flags |= 1 << 22
+                        }
+                    
+                        sendMessageRequest = network.requestWithAdditionalInfo(Api.functions.messages.sendMessage(flags: flags, peer: inputPeer, replyTo: replyTo, message: message.text, randomId: uniqueId, replyMarkup: nil, entities: messageEntities, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, effect: messageEffectId, allowPaidStars: allowPaidStars, suggestedPost: suggestedPost), info: .acknowledgement, tag: dependencyTag)
                     case let .media(inputMedia, text):
                         if bubbleUpEmojiOrStickersets {
                             flags |= Int32(1 << 15)
@@ -1428,8 +1554,10 @@ public final class PendingMessageManager {
                             flags |= 1 << 0
                             
                             var replyFlags: Int32 = 0
-                            if message.threadId != nil {
+                            if topMsgId != nil {
                                 replyFlags |= 1 << 0
+                            } else if monoforumPeerId != nil {
+                                replyFlags |= 1 << 5
                             }
                             
                             var replyToPeerId: Api.InputPeer?
@@ -1467,13 +1595,19 @@ public final class PendingMessageManager {
                                     quoteEntities = apiEntitiesFromMessageTextEntities(replyQuote.entities, associatedPeers: associatedPeers)
                                 }
                             }
-                            
-                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: message.threadId.flatMap(Int32.init(clamping:)), replyToPeerId: replyToPeerId, quoteText: quoteText, quoteEntities: quoteEntities, quoteOffset: quoteOffset)
+
+                            if let _ = replyTodoItemId {
+                                replyFlags |= 1 << 6
+                            }
+                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: topMsgId, replyToPeerId: replyToPeerId, quoteText: quoteText, quoteEntities: quoteEntities, quoteOffset: quoteOffset, monoforumPeerId: monoforumPeerId, todoItemId: replyTodoItemId)
                         } else if let replyToStoryId = replyToStoryId {
                             if let inputPeer = transaction.getPeer(replyToStoryId.peerId).flatMap(apiInputPeer) {
                                 flags |= 1 << 0
                                 replyTo = .inputReplyToStory(peer: inputPeer, storyId: replyToStoryId.id)
                             }
+                        } else if let monoforumPeerId {
+                            flags |= 1 << 0
+                            replyTo = .inputReplyToMonoForum(monoforumPeerId: monoforumPeerId)
                         }
                     
                         if let attribute = message.webpagePreviewAttribute {
@@ -1501,13 +1635,27 @@ public final class PendingMessageManager {
                             messageEffectId = messageEffect.id
                         }
                         
-                        sendMessageRequest = network.request(Api.functions.messages.sendMedia(flags: flags, peer: inputPeer, replyTo: replyTo, media: inputMedia, message: text, randomId: uniqueId, replyMarkup: nil, entities: messageEntities, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, effect: messageEffectId), tag: dependencyTag)
+                        if let _ = allowPaidStars {
+                            flags |= 1 << 21
+                        }
+                        if let _ = suggestedPost {
+                            flags |= 1 << 22
+                        }
+                    
+                        sendMessageRequest = network.request(Api.functions.messages.sendMedia(flags: flags, peer: inputPeer, replyTo: replyTo, media: inputMedia, message: text, randomId: uniqueId, replyMarkup: nil, entities: messageEntities, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, effect: messageEffectId, allowPaidStars: allowPaidStars, suggestedPost: suggestedPost), tag: dependencyTag)
                         |> map(NetworkRequestResult.result)
                     case let .forward(sourceInfo):
                         var topMsgId: Int32?
+                        var monoforumPeerId: Api.InputPeer?
                         if let threadId = message.threadId {
-                            flags |= Int32(1 << 9)
-                            topMsgId = Int32(clamping: threadId)
+                            if let channel = peer as? TelegramChannel, channel.flags.contains(.isMonoforum) {
+                                if let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = transaction.getPeer(linkedMonoforumId) as? TelegramChannel, mainChannel.hasPermission(.manageDirect) {
+                                    monoforumPeerId = transaction.getPeer(PeerId(threadId)).flatMap(apiInputPeer)
+                                }
+                            } else {
+                                flags |= Int32(1 << 9)
+                                topMsgId = Int32(clamping: threadId)
+                            }
                         }
                     
                         var quickReplyShortcut: Api.InputQuickReplyShortcut?
@@ -1520,8 +1668,26 @@ public final class PendingMessageManager {
                             flags |= 1 << 17
                         }
                     
+                        if videoTimestamp != nil {
+                            flags |= 1 << 20
+                        }
+                    
+                        if let _ = allowPaidStars {
+                            flags |= 1 << 21
+                        }
+                    
+                        var replyTo: Api.InputReplyTo?
+                        if let monoforumPeerId {
+                            replyTo = .inputReplyToMonoForum(monoforumPeerId: monoforumPeerId)
+                            flags |= 1 << 22
+                        }
+                    
+                        if suggestedPost != nil {
+                            flags |= 1 << 23
+                        }
+                    
                         if let forwardSourceInfoAttribute = forwardSourceInfoAttribute, let sourcePeer = transaction.getPeer(forwardSourceInfoAttribute.messageId.peerId), let sourceInputPeer = apiInputPeer(sourcePeer) {
-                            sendMessageRequest = network.request(Api.functions.messages.forwardMessages(flags: flags, fromPeer: sourceInputPeer, id: [sourceInfo.messageId.id], randomId: [uniqueId], toPeer: inputPeer, topMsgId: topMsgId, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut), tag: dependencyTag)
+                            sendMessageRequest = network.request(Api.functions.messages.forwardMessages(flags: flags, fromPeer: sourceInputPeer, id: [sourceInfo.messageId.id], randomId: [uniqueId], toPeer: inputPeer, topMsgId: topMsgId, replyTo: replyTo, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, videoTimestamp: videoTimestamp, allowPaidStars: allowPaidStars, suggestedPost: suggestedPost), tag: dependencyTag)
                             |> map(NetworkRequestResult.result)
                         } else {
                             sendMessageRequest = .fail(MTRpcError(errorCode: 400, errorDescription: "internal"))
@@ -1536,8 +1702,10 @@ public final class PendingMessageManager {
                             flags |= 1 << 0
                             
                             var replyFlags: Int32 = 0
-                            if message.threadId != nil {
+                            if topMsgId != nil {
                                 replyFlags |= 1 << 0
+                            } else if monoforumPeerId != nil {
+                                replyFlags |= 1 << 5
                             }
                             
                             var replyToPeerId: Api.InputPeer?
@@ -1575,13 +1743,19 @@ public final class PendingMessageManager {
                                     quoteEntities = apiEntitiesFromMessageTextEntities(replyQuote.entities, associatedPeers: associatedPeers)
                                 }
                             }
-                            
-                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: message.threadId.flatMap(Int32.init(clamping:)), replyToPeerId: replyToPeerId, quoteText: quoteText, quoteEntities: quoteEntities, quoteOffset: quoteOffset)
+
+                            if let _ = replyTodoItemId {
+                                replyFlags |= 1 << 6
+                            }
+                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: message.threadId.flatMap(Int32.init(clamping:)), replyToPeerId: replyToPeerId, quoteText: quoteText, quoteEntities: quoteEntities, quoteOffset: quoteOffset, monoforumPeerId: monoforumPeerId, todoItemId: replyTodoItemId)
                         } else if let replyToStoryId = replyToStoryId {
                             if let inputPeer = transaction.getPeer(replyToStoryId.peerId).flatMap(apiInputPeer) {
                                 flags |= 1 << 0
                                 replyTo = .inputReplyToStory(peer: inputPeer, storyId: replyToStoryId.id)
                             }
+                        } else if let monoforumPeerId {
+                            flags |= 1 << 0
+                            replyTo = .inputReplyToMonoForum(monoforumPeerId: monoforumPeerId)
                         }
                     
                         var quickReplyShortcut: Api.InputQuickReplyShortcut?
@@ -1594,25 +1768,29 @@ public final class PendingMessageManager {
                             flags |= 1 << 17
                         }
                     
-                        sendMessageRequest = network.request(Api.functions.messages.sendInlineBotResult(flags: flags, peer: inputPeer, replyTo: replyTo, randomId: uniqueId, queryId: chatContextResult.queryId, id: chatContextResult.id, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut))
+                        if let _ = allowPaidStars {
+                            flags |= 1 << 21
+                        }
+                    
+                        sendMessageRequest = network.request(Api.functions.messages.sendInlineBotResult(flags: flags, peer: inputPeer, replyTo: replyTo, randomId: uniqueId, queryId: chatContextResult.queryId, id: chatContextResult.id, scheduleDate: scheduleTime, sendAs: sendAsInputPeer, quickReplyShortcut: quickReplyShortcut, allowPaidStars: allowPaidStars))
                         |> map(NetworkRequestResult.result)
                     case .messageScreenshot:
                         let replyTo: Api.InputReplyTo
                     
                         if let replyMessageId = replyMessageId {
                             let replyFlags: Int32 = 0
-                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: nil, replyToPeerId: nil, quoteText: nil, quoteEntities: nil, quoteOffset: nil)
+                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: replyMessageId, topMsgId: nil, replyToPeerId: nil, quoteText: nil, quoteEntities: nil, quoteOffset: nil, monoforumPeerId: nil, todoItemId: nil)
                         } else if let replyToStoryId = replyToStoryId {
                             if let inputPeer = transaction.getPeer(replyToStoryId.peerId).flatMap(apiInputPeer) {
                                 flags |= 1 << 0
                                 replyTo = .inputReplyToStory(peer: inputPeer, storyId: replyToStoryId.id)
                             } else {
                                 let replyFlags: Int32 = 0
-                                replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: 0, topMsgId: nil, replyToPeerId: nil, quoteText: nil, quoteEntities: nil, quoteOffset: nil)
+                                replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: 0, topMsgId: nil, replyToPeerId: nil, quoteText: nil, quoteEntities: nil, quoteOffset: nil, monoforumPeerId: monoforumPeerId, todoItemId: nil)
                             }
                         } else {
                             let replyFlags: Int32 = 0
-                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: 0, topMsgId: nil, replyToPeerId: nil, quoteText: nil, quoteEntities: nil, quoteOffset: nil)
+                            replyTo = .inputReplyToMessage(flags: replyFlags, replyToMsgId: 0, topMsgId: nil, replyToPeerId: nil, quoteText: nil, quoteEntities: nil, quoteOffset: nil, monoforumPeerId: monoforumPeerId, todoItemId: nil)
                         }
                     
                         sendMessageRequest = network.request(Api.functions.messages.sendScreenshotNotification(peer: inputPeer, replyTo: replyTo, randomId: uniqueId))
@@ -1720,6 +1898,15 @@ public final class PendingMessageManager {
     }
     
     private func applySentMessage(postbox: Postbox, stateManager: AccountStateManager, message: Message, content: PendingMessageUploadedContentAndReuploadInfo, result: Api.Updates) -> Signal<Void, NoError> {
+        if let channel = message.peers[message.id.peerId] as? TelegramChannel, channel.isMonoForum {
+            for attribute in message.attributes {
+                if let attribute = attribute as? PaidStarsMessageAttribute {
+                    stateManager.starsContext?.add(balance: StarsAmount(value: -attribute.stars.value, nanos: (attribute.stars.value == 0 && attribute.stars.nanos != 0 ? -1 : 1) * attribute.stars.nanos))
+                    break
+                }
+            }
+        }
+        
         var apiMessage: Api.Message?
         for resultMessage in result.messages {
             let targetNamespace: MessageId.Namespace
@@ -1745,7 +1932,7 @@ public final class PendingMessageManager {
             if message.scheduleTime != nil && message.scheduleTime == apiMessage.timestamp {
                 isScheduled = true
             }
-            if case let .message(_, flags2, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = apiMessage {
+            if case let .message(_, flags2, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = apiMessage {
                 if (flags2 & (1 << 4)) != 0 {
                     isScheduled = true
                 }
@@ -1776,11 +1963,20 @@ public final class PendingMessageManager {
     private func applySentGroupMessages(postbox: Postbox, stateManager: AccountStateManager, messages: [Message], result: Api.Updates) -> Signal<Void, NoError> {
         var namespace = Namespaces.Message.Cloud
         if let message = messages.first {
+            if let channel = message.peers[message.id.peerId] as? TelegramChannel, channel.isMonoForum {
+                for attribute in message.attributes {
+                    if let attribute = attribute as? PaidStarsMessageAttribute {
+                        stateManager.starsContext?.add(balance: StarsAmount(value: -attribute.stars.value, nanos: (attribute.stars.value == 0 && attribute.stars.nanos != 0 ? -1 : 1) * attribute.stars.nanos))
+                        break
+                    }
+                }
+            }
+            
             if message.id.namespace == Namespaces.Message.QuickReplyLocal {
                 namespace = Namespaces.Message.QuickReplyCloud
             } else if let apiMessage = result.messages.first, message.scheduleTime != nil && message.scheduleTime == apiMessage.timestamp {
                 namespace = Namespaces.Message.ScheduledCloud
-            } else if let apiMessage = result.messages.first, case let .message(_, flags2, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = apiMessage, (flags2 & (1 << 4)) != 0 {
+            } else if let apiMessage = result.messages.first, case let .message(_, flags2, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) = apiMessage, (flags2 & (1 << 4)) != 0 {
                 namespace = Namespaces.Message.ScheduledCloud
             }
         }

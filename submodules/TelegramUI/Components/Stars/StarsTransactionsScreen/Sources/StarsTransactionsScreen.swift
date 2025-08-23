@@ -23,6 +23,8 @@ import StarsAvatarComponent
 import TelegramStringFormatting
 import ListItemComponentAdaptor
 import ItemListUI
+import StarsWithdrawalScreen
+import PremiumDiamondComponent
 
 private let initialSubscriptionsDisplayedLimit: Int32 = 3
 
@@ -31,27 +33,36 @@ final class StarsTransactionsScreenComponent: Component {
     
     let context: AccountContext
     let starsContext: StarsContext
-    let subscriptionsContext: StarsSubscriptionsContext
+    let starsRevenueStatsContext: StarsRevenueStatsContext
+    let subscriptionsContext: StarsSubscriptionsContext?
     let openTransaction: (StarsContext.State.Transaction) -> Void
     let openSubscription: (StarsContext.State.Subscription) -> Void
     let buy: () -> Void
+    let withdraw: () -> Void
+    let showTimeoutTooltip: (Int32) -> Void
     let gift: () -> Void
     
     init(
         context: AccountContext,
         starsContext: StarsContext,
-        subscriptionsContext: StarsSubscriptionsContext,
+        starsRevenueStatsContext: StarsRevenueStatsContext,
+        subscriptionsContext: StarsSubscriptionsContext?,
         openTransaction: @escaping (StarsContext.State.Transaction) -> Void,
         openSubscription: @escaping (StarsContext.State.Subscription) -> Void,
         buy: @escaping () -> Void,
+        withdraw: @escaping () -> Void,
+        showTimeoutTooltip: @escaping (Int32) -> Void,
         gift: @escaping () -> Void
     ) {
         self.context = context
         self.starsContext = starsContext
+        self.starsRevenueStatsContext = starsRevenueStatsContext
         self.subscriptionsContext = subscriptionsContext
         self.openTransaction = openTransaction
         self.openSubscription = openSubscription
         self.buy = buy
+        self.withdraw = withdraw
+        self.showTimeoutTooltip = showTimeoutTooltip
         self.gift = gift
     }
     
@@ -103,6 +114,7 @@ final class StarsTransactionsScreenComponent: Component {
         private let titleView = ComponentView<Empty>()
         private let descriptionView = ComponentView<Empty>()
         
+        private let proceedsView = ComponentView<Empty>()
         private let balanceView = ComponentView<Empty>()
         private let earnStarsSection = ComponentView<Empty>()
         
@@ -130,6 +142,9 @@ final class StarsTransactionsScreenComponent: Component {
         private var stateDisposable: Disposable?
         private var starsState: StarsContext.State?
         
+        private var revenueStateDisposable: Disposable?
+        private var revenueState: StarsRevenueStats?
+        
         private var previousBalance: StarsAmount?
         
         private var subscriptionsStateDisposable: Disposable?
@@ -140,6 +155,8 @@ final class StarsTransactionsScreenComponent: Component {
         private var allTransactionsContext: StarsTransactionsContext?
         private var incomingTransactionsContext: StarsTransactionsContext?
         private var outgoingTransactionsContext: StarsTransactionsContext?
+        
+        private var cachedChevronImage: (UIImage, PresentationTheme)?
                 
         override init(frame: CGRect) {
             self.navigationBackgroundView = BlurredBackgroundView(color: nil, enableBlur: true)
@@ -186,6 +203,8 @@ final class StarsTransactionsScreenComponent: Component {
         
         deinit {
             self.stateDisposable?.dispose()
+            self.revenueStateDisposable?.dispose()
+            self.subscriptionsStateDisposable?.dispose()
         }
         
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -372,22 +391,36 @@ final class StarsTransactionsScreenComponent: Component {
                     }
                 })
                 
-                self.subscriptionsStateDisposable = (component.subscriptionsContext.state
+                self.revenueStateDisposable = (component.starsRevenueStatsContext.state
                 |> deliverOnMainQueue).start(next: { [weak self] state in
                     guard let self else {
                         return
                     }
-                    let isFirstTime = self.subscriptionsState == nil
-                    if !state.subscriptions.isEmpty {
-                        self.subscriptionsState = state
-                    } else {
-                        self.subscriptionsState = nil
-                    }
+                    self.revenueState = state.stats
                     
                     if !self.isUpdating {
-                        self.state?.updated(transition: isFirstTime ? .immediate : .spring(duration: 0.4))
+                        self.state?.updated()
                     }
                 })
+                
+                if let subscriptionsContext = component.subscriptionsContext {
+                    self.subscriptionsStateDisposable = (subscriptionsContext.state
+                    |> deliverOnMainQueue).start(next: { [weak self] state in
+                        guard let self else {
+                            return
+                        }
+                        let isFirstTime = self.subscriptionsState == nil
+                        if !state.subscriptions.isEmpty {
+                            self.subscriptionsState = state
+                        } else {
+                            self.subscriptionsState = nil
+                        }
+                        
+                        if !self.isUpdating {
+                            self.state?.updated(transition: isFirstTime ? .immediate : .spring(duration: 0.4))
+                        }
+                    })
+                }
             }
             
             var wasLockedAtPanels = false
@@ -420,7 +453,11 @@ final class StarsTransactionsScreenComponent: Component {
             let sideInsets: CGFloat = environment.safeInsets.left + environment.safeInsets.right + 16.0 * 2.0
             let bottomInset: CGFloat = environment.safeInsets.bottom
              
-            contentHeight += environment.statusBarHeight
+            if environment.statusBarHeight > 0.0 {
+                contentHeight += environment.statusBarHeight
+            } else {
+                contentHeight += 12.0
+            }
             
             let starTransition: ComponentTransition = .immediate
             
@@ -464,10 +501,12 @@ final class StarsTransactionsScreenComponent: Component {
                 }
                 starTransition.setFrame(view: fadeView, frame: fadeFrame)
             }
-                    
-            let starSize = self.starView.update(
-                transition: .immediate,
-                component: AnyComponent(PremiumStarComponent(
+            
+            let headerComponent: AnyComponent<Empty>
+            if component.starsContext.ton {
+                headerComponent = AnyComponent(PremiumDiamondComponent(theme: environment.theme))
+            } else {
+                headerComponent = AnyComponent(PremiumStarComponent(
                     theme: environment.theme,
                     isIntro: true,
                     isVisible: true,
@@ -480,7 +519,12 @@ final class StarsTransactionsScreenComponent: Component {
                     ],
                     particleColor: UIColor(rgb: 0xf9b004),
                     backgroundColor: environment.theme.list.blocksBackgroundColor
-                )),
+                ))
+            }
+                    
+            let starSize = self.starView.update(
+                transition: .immediate,
+                component: headerComponent,
                 environment: {},
                 containerSize: CGSize(width: min(414.0, availableSize.width), height: 220.0)
             )
@@ -491,12 +535,22 @@ final class StarsTransactionsScreenComponent: Component {
                 }
                 starTransition.setBounds(view: starView, bounds: starFrame)
             }
+            
+            let titleString: String
+            let descriptionString: String
+            if component.starsContext.ton {
+                titleString = environment.strings.Stars_Ton_Title
+                descriptionString = environment.strings.Stars_Ton_Description
+            } else {
+                titleString = environment.strings.Stars_Intro_Title
+                descriptionString = environment.strings.Stars_Intro_Description
+            }
                        
             let titleSize = self.titleView.update(
                 transition: .immediate,
                 component: AnyComponent(
                     MultilineTextComponent(
-                        text: .plain(NSAttributedString(string: environment.strings.Stars_Intro_Title, font: Font.bold(28.0), textColor: environment.theme.list.itemPrimaryTextColor)),
+                        text: .plain(NSAttributedString(string: titleString, font: Font.bold(28.0), textColor: environment.theme.list.itemPrimaryTextColor)),
                         horizontalAlignment: .center,
                         truncationType: .end,
                         maximumNumberOfLines: 1
@@ -526,14 +580,20 @@ final class StarsTransactionsScreenComponent: Component {
                 containerSize: CGSize(width: 120.0, height: 100.0)
             )
             
+            let formattedBalance: String
+            if component.starsContext.ton {
+                formattedBalance = formatTonAmountText(self.starsState?.balance.value ?? 0, dateTimeFormat: environment.dateTimeFormat)
+            } else {
+                formattedBalance = formatStarsAmountText(self.starsState?.balance ?? StarsAmount.zero, dateTimeFormat: environment.dateTimeFormat)
+            }
+            let smallLabelFont = Font.regular(11.0)
+            let labelFont = Font.semibold(14.0)
+            let balanceText = tonAmountAttributedString(formattedBalance, integralFont: labelFont, fractionalFont: smallLabelFont, color: environment.theme.actionSheet.primaryTextColor, decimalSeparator: environment.dateTimeFormat.decimalSeparator)
+            
             let topBalanceValueSize = self.topBalanceValueView.update(
                 transition: .immediate,
                 component: AnyComponent(MultilineTextComponent(
-                    text: .plain(NSAttributedString(
-                        string: presentationStringsFormattedNumber(self.starsState?.balance ?? StarsAmount.zero, environment.dateTimeFormat.groupingSeparator),
-                        font: Font.semibold(14.0),
-                        textColor: environment.theme.actionSheet.primaryTextColor
-                    )),
+                    text: .plain(balanceText),
                     maximumNumberOfLines: 1
                 )),
                 environment: {},
@@ -541,7 +601,11 @@ final class StarsTransactionsScreenComponent: Component {
             )
             let topBalanceIconSize = self.topBalanceIconView.update(
                 transition: .immediate,
-                component: AnyComponent(BundleIconComponent(name: "Premium/Stars/StarSmall", tintColor: nil)),
+                component: AnyComponent(BundleIconComponent(
+                    name: component.starsContext.ton ? "Ads/TonBig" : "Premium/Stars/StarSmall",
+                    tintColor: component.starsContext.ton ? environment.theme.list.itemAccentColor : nil,
+                    maxSize: component.starsContext.ton ? CGSize(width: 12.0, height: 12.0) : nil
+                )),
                 environment: {},
                 containerSize: availableSize
             )
@@ -566,7 +630,10 @@ final class StarsTransactionsScreenComponent: Component {
                 starTransition.setFrame(view: topBalanceValueView, frame: topBalanceValueFrame)
             }
             
-            let topBalanceIconFrame = CGRect(origin: CGPoint(x: topBalanceValueFrame.minX - topBalanceIconSize.width - 2.0, y: floorToScreenPixels(topBalanceValueFrame.midY - topBalanceIconSize.height / 2.0) - UIScreenPixel), size: topBalanceIconSize)
+            var topBalanceIconFrame = CGRect(origin: CGPoint(x: topBalanceValueFrame.minX - topBalanceIconSize.width - 2.0, y: floorToScreenPixels(topBalanceValueFrame.midY - topBalanceIconSize.height / 2.0) - UIScreenPixel), size: topBalanceIconSize)
+            if component.starsContext.ton {
+                topBalanceIconFrame.origin.y += 1.0 - UIScreenPixel
+            }
             if let topBalanceIconView = self.topBalanceIconView.view {
                 if topBalanceIconView.superview == nil {
                     topBalanceIconView.alpha = 0.0
@@ -581,7 +648,7 @@ final class StarsTransactionsScreenComponent: Component {
                 transition: .immediate,
                 component: AnyComponent(
                     BalancedTextComponent(
-                        text: .plain(NSAttributedString(string: environment.strings.Stars_Intro_Description, font: Font.regular(15.0), textColor: environment.theme.list.itemPrimaryTextColor)),
+                        text: .plain(NSAttributedString(string: descriptionString, font: Font.regular(15.0), textColor: environment.theme.list.itemPrimaryTextColor)),
                         horizontalAlignment: .center,
                         maximumNumberOfLines: 0,
                         lineSpacing: 0.2
@@ -602,31 +669,125 @@ final class StarsTransactionsScreenComponent: Component {
             contentHeight += descriptionSize.height
             contentHeight += 29.0
             
+            let withdrawAvailable = (self.revenueState?.balances.overallRevenue.amount.value ?? 0) > 0
+             
+//            if component.starsContext.ton {
+//                //TODO:localize
+//                let proceedsSize = self.proceedsView.update(
+//                    transition: .immediate,
+//                    component: AnyComponent(ListSectionComponent(
+//                        theme: environment.theme,
+//                        header: AnyComponent(MultilineTextComponent(
+//                            text: .plain(NSAttributedString(
+//                                string: "Proceeds Overview".uppercased(),
+//                                font: Font.regular(presentationData.listsFontSize.itemListBaseHeaderFontSize),
+//                                textColor: environment.theme.list.freeTextColor
+//                            )),
+//                            maximumNumberOfLines: 0
+//                        )),
+//                        footer: nil,
+//                        items: [
+//                            AnyComponentWithIdentity(id: 0, component: AnyComponent(StarsOverviewItemComponent(
+//                                theme: environment.theme,
+//                                dateTimeFormat: environment.dateTimeFormat,
+//                                title: "Balance Available to Withdraw",
+//                                value: self.revenueState?.balances.availableBalance ?? CurrencyAmount(amount: .zero, currency: .stars),
+//                                rate: self.revenueState?.usdRate ?? 0.0
+//                            ))),
+//                            AnyComponentWithIdentity(id: 1, component: AnyComponent(StarsOverviewItemComponent(
+//                                theme: environment.theme,
+//                                dateTimeFormat: environment.dateTimeFormat,
+//                                title: "Total Lifetime Proceeds",
+//                                value: self.revenueState?.balances.overallRevenue ?? CurrencyAmount(amount: .zero, currency: .stars),
+//                                rate: self.revenueState?.usdRate ?? 0.0
+//                            )))
+//                        ],
+//                        displaySeparators: false
+//                    )),
+//                    environment: {},
+//                    containerSize: CGSize(width: availableSize.width - sideInsets, height: availableSize.height)
+//                )
+//                let proceedsFrame = CGRect(origin: CGPoint(x: floorToScreenPixels((availableSize.width - proceedsSize.width) / 2.0), y: contentHeight), size: proceedsSize)
+//                if let proceedsView = self.proceedsView.view {
+//                    if proceedsView.superview == nil {
+//                        self.scrollView.addSubview(proceedsView)
+//                    }
+//                    transition.setFrame(view: proceedsView, frame: proceedsFrame)
+//                }
+//                contentHeight += proceedsSize.height
+//                contentHeight += 31.0
+//            }
+            
+            let termsFont = Font.regular(13.0)
+            let termsTextColor = environment.theme.list.freeTextColor
+            let termsMarkdownAttributes = MarkdownAttributes(body: MarkdownAttributeSet(font: termsFont, textColor: termsTextColor), bold: MarkdownAttributeSet(font: termsFont, textColor: termsTextColor), link: MarkdownAttributeSet(font: termsFont, textColor: environment.theme.list.itemAccentColor), linkAttribute: { contents in
+                return (TelegramTextAttributes.URL, contents)
+            })
+            
+            let balanceInfoRawString = "Collect your TON using Fragment. [Learn More >]()"
+            let balanceInfoString = NSMutableAttributedString(attributedString: parseMarkdownIntoAttributedString(balanceInfoRawString, attributes: termsMarkdownAttributes, textAlignment: .natural))
+            if self.cachedChevronImage == nil || self.cachedChevronImage?.1 !== environment.theme {
+                self.cachedChevronImage = (generateTintedImage(image: UIImage(bundleImageName: "Contact List/SubtitleArrow"), color: environment.theme.list.itemAccentColor)!, environment.theme)
+            }
+            if let range = balanceInfoString.string.range(of: ">"), let chevronImage = self.cachedChevronImage?.0 {
+                balanceInfoString.addAttribute(.attachment, value: chevronImage, range: NSRange(range, in: balanceInfoString.string))
+            }
+            
             let premiumConfiguration = PremiumConfiguration.with(appConfiguration: component.context.currentAppConfiguration.with { $0 })
             let balanceSize = self.balanceView.update(
                 transition: .immediate,
                 component: AnyComponent(ListSectionComponent(
                     theme: environment.theme,
                     header: nil,
-                    footer: nil,
+                    footer: component.starsContext.ton && !"".isEmpty ? AnyComponent(MultilineTextComponent(
+                        text: .plain(balanceInfoString),
+                        maximumNumberOfLines: 0,
+                        highlightColor: environment.theme.list.itemAccentColor.withAlphaComponent(0.1),
+                        highlightInset: UIEdgeInsets(top: 0.0, left: 0.0, bottom: 0.0, right: -8.0),
+                        highlightAction: { attributes in
+                            if let _ = attributes[NSAttributedString.Key(rawValue: TelegramTextAttributes.URL)] {
+                                return NSAttributedString.Key(rawValue: TelegramTextAttributes.URL)
+                            } else {
+                                return nil
+                            }
+                        },
+                        tapAction: { [weak self] attributes, _ in
+                            if let controller = self?.controller?() as? StarsTransactionsScreen, let navigationController = controller.navigationController as? NavigationController {
+                                component.context.sharedContext.openExternalUrl(context: component.context, urlContext: .generic, url: environment.strings.Stars_BotRevenue_Withdraw_Info_URL, forceExternal: false, presentationData: presentationData, navigationController: navigationController, dismissInput: {})
+                            }
+                        }
+                    )) : nil,
                     items: [AnyComponentWithIdentity(id: 0, component: AnyComponent(
                         StarsBalanceComponent(
                             theme: environment.theme,
                             strings: environment.strings,
                             dateTimeFormat: environment.dateTimeFormat,
                             count: self.starsState?.balance ?? StarsAmount.zero,
+                            currency: component.starsContext.ton ? .ton : .stars,
                             rate: nil,
-                            actionTitle: environment.strings.Stars_Intro_Buy,
-                            actionAvailable: !premiumConfiguration.areStarsDisabled,
+                            actionTitle: component.starsContext.ton ? "Withdraw via Fragment" : (withdrawAvailable ? environment.strings.Stars_Intro_BuyShort : environment.strings.Stars_Intro_Buy),
+                            actionAvailable: (!component.starsContext.ton && !premiumConfiguration.areStarsDisabled && !premiumConfiguration.isPremiumDisabled),
                             actionIsEnabled: true,
+                            actionIcon: component.starsContext.ton ? nil : PresentationResourcesItemList.itemListRoundTopupIcon(environment.theme),
                             action: { [weak self] in
                                 guard let self, let component = self.component else {
                                     return
                                 }
-                                component.buy()
+                                if component.starsContext.ton {
+                                    component.withdraw()
+                                } else {
+                                    component.buy()
+                                }
                             },
-                            buyAds: nil,
-                            additionalAction: premiumConfiguration.starsGiftsPurchaseAvailable ? AnyComponent(
+                            secondaryActionTitle: withdrawAvailable && !component.starsContext.ton ? environment.strings.Stars_Intro_Stats : nil,
+                            secondaryActionIcon: withdrawAvailable && !component.starsContext.ton ? PresentationResourcesItemList.itemListStatsIcon(environment.theme) : nil,
+                            secondaryAction: withdrawAvailable && !component.starsContext.ton ? { [weak self] in
+                                guard let self, let component = self.component else {
+                                    return
+                                }
+                                component.withdraw()
+                            } : nil,
+                            additionalAction: (premiumConfiguration.starsGiftsPurchaseAvailable && !premiumConfiguration.isPremiumDisabled && !component.starsContext.ton) ? AnyComponent(
                                 Button(
                                     content: AnyComponent(
                                         HStack([
@@ -663,7 +824,7 @@ final class StarsTransactionsScreenComponent: Component {
             contentHeight += 34.0
             
             var canJoinRefProgram = false
-            if let data = component.context.currentAppConfiguration.with({ $0 }).data, let value = data["starref_connect_allowed"] {
+            if !component.starsContext.ton, let data = component.context.currentAppConfiguration.with({ $0 }).data, let value = data["starref_connect_allowed"] {
                 if let value = value as? Double {
                     canJoinRefProgram = value != 0.0
                 } else if let value = value as? Bool {
@@ -688,7 +849,7 @@ final class StarsTransactionsScreenComponent: Component {
                                         return
                                     }
                                     let _ = (component.context.sharedContext.makeAffiliateProgramSetupScreenInitialData(context: component.context, peerId: component.context.account.peerId, mode: .connectedPrograms)
-                                             |> deliverOnMainQueue).startStandalone(next: { [weak self] initialData in
+                                    |> deliverOnMainQueue).startStandalone(next: { [weak self] initialData in
                                         guard let self, let component = self.component else {
                                             return
                                         }
@@ -793,7 +954,8 @@ final class StarsTransactionsScreenComponent: Component {
                             MultilineTextComponent(text: .plain(NSAttributedString(string: isExpired ? environment.strings.Stars_Intro_Subscriptions_ExpiredStatus : environment.strings.Stars_Intro_Subscriptions_Cancelled, font: Font.regular(floor(fontBaseDisplaySize * 13.0 / 17.0)), textColor: environment.theme.list.itemDestructiveColor)))
                         ))
                     } else {
-                        let itemLabel = NSAttributedString(string: "\(subscription.pricing.amount)", font: Font.medium(fontBaseDisplaySize), textColor: environment.theme.list.itemPrimaryTextColor)
+                        let itemLabelColor = environment.theme.list.itemPrimaryTextColor
+                        let itemLabel = NSAttributedString(string: "\(subscription.pricing.amount)", font: Font.medium(fontBaseDisplaySize), textColor: itemLabelColor)
                         let itemSublabel = NSAttributedString(string: environment.strings.Stars_Intro_Subscriptions_PerMonth, font: Font.regular(floor(fontBaseDisplaySize * 13.0 / 17.0)), textColor: environment.theme.list.itemSecondaryTextColor)
                         
                         labelComponent = AnyComponentWithIdentity(id: "label", component: AnyComponent(StarsLabelComponent(text: itemLabel, subtext: itemSublabel)))
@@ -851,7 +1013,7 @@ final class StarsTransactionsScreenComponent: Component {
                                         self.subscriptionsExpanded = true
                                     }
                                     self.state?.updated(transition: .spring(duration: 0.4))
-                                    component.subscriptionsContext.loadMore()
+                                    component.subscriptionsContext?.loadMore()
                                 },
                                 highlighting: .default,
                                 updateIsHighlighted: { view, _ in
@@ -1043,25 +1205,37 @@ final class StarsTransactionsScreenComponent: Component {
 public final class StarsTransactionsScreen: ViewControllerComponentContainer {
     private let context: AccountContext
     private let starsContext: StarsContext
-    private let subscriptionsContext: StarsSubscriptionsContext
+    private let starsRevenueStatsContext: StarsRevenueStatsContext
+    private let subscriptionsContext: StarsSubscriptionsContext?
     
     private let options = Promise<[StarsTopUpOption]>()
     
     private let navigateDisposable = MetaDisposable()
     
+    private weak var tooltipScreen: UndoOverlayController?
+    private var timer: Foundation.Timer?
+    
     public init(context: AccountContext, starsContext: StarsContext, forceDark: Bool = false) {
         self.context = context
         self.starsContext = starsContext
         
-        self.subscriptionsContext = context.engine.payments.peerStarsSubscriptionsContext(starsContext: starsContext)
+        self.starsRevenueStatsContext = context.engine.payments.peerStarsRevenueContext(peerId: context.account.peerId, ton: false)
+        if !starsContext.ton {
+            self.subscriptionsContext = context.engine.payments.peerStarsSubscriptionsContext(starsContext: starsContext)
+        } else {
+            self.subscriptionsContext = nil
+        }
         
         var buyImpl: (() -> Void)?
+        var withdrawImpl: (() -> Void)?
+        var showTimeoutTooltipImpl: ((Int32) -> Void)?
         var giftImpl: (() -> Void)?
         var openTransactionImpl: ((StarsContext.State.Transaction) -> Void)?
         var openSubscriptionImpl: ((StarsContext.State.Subscription) -> Void)?
         super.init(context: context, component: StarsTransactionsScreenComponent(
-            context: context,
-            starsContext: starsContext,
+            context: self.context,
+            starsContext: self.starsContext,
+            starsRevenueStatsContext: self.starsRevenueStatsContext,
             subscriptionsContext: self.subscriptionsContext,
             openTransaction: { transaction in
                 openTransactionImpl?(transaction)
@@ -1071,6 +1245,12 @@ public final class StarsTransactionsScreen: ViewControllerComponentContainer {
             },
             buy: {
                 buyImpl?()
+            },
+            withdraw: {
+                withdrawImpl?()
+            },
+            showTimeoutTooltip: { timestamp in
+                showTimeoutTooltipImpl?(timestamp)
             },
             gift: {
                 giftImpl?()
@@ -1115,9 +1295,9 @@ public final class StarsTransactionsScreen: ViewControllerComponentContainer {
                     }
                     if !updated {
                         if subscription.flags.contains(.isCancelled) {
-                            self.subscriptionsContext.updateSubscription(id: subscription.id, cancel: false)
+                            self.subscriptionsContext?.updateSubscription(id: subscription.id, cancel: false)
                         } else {
-                            self.subscriptionsContext.updateSubscription(id: subscription.id, cancel: true)
+                            self.subscriptionsContext?.updateSubscription(id: subscription.id, cancel: true)
                         }
                     }
                 } else {
@@ -1165,6 +1345,113 @@ public final class StarsTransactionsScreen: ViewControllerComponentContainer {
                 })
                 self.push(controller)
             })
+        }
+        
+        withdrawImpl = { [weak self] in
+            guard let self else {
+                return
+            }
+            
+            if self.starsContext.ton {
+                let _ = (context.engine.peers.checkStarsRevenueWithdrawalAvailability()
+                |> deliverOnMainQueue).start(error: { [weak self] error in
+                    guard let self else {
+                        return
+                    }
+                    switch error {
+                    case .serverProvided:
+                        return
+                    case .requestPassword:
+                        let _ = (self.starsRevenueStatsContext.state
+                        |> take(1)
+                        |> deliverOnMainQueue).start(next: { [weak self] state in
+                            guard let self, let stats = state.stats else {
+                                return
+                            }
+                            let controller = self.context.sharedContext.makeStarsWithdrawalScreen(context: context, stats: stats, completion: { [weak self] amount in
+                                guard let self else {
+                                    return
+                                }
+                                let controller = confirmStarsRevenueWithdrawalController(context: context, peerId: context.account.peerId, amount: amount, present: { [weak self] c, a in
+                                    self?.present(c, in: .window(.root))
+                                }, completion: { [weak self] url in
+                                    let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+                                    context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: url, forceExternal: true, presentationData: presentationData, navigationController: nil, dismissInput: {})
+                                    
+                                    Queue.mainQueue().after(2.0) {
+                                        self?.starsRevenueStatsContext.reload()
+                                    }
+                                })
+                                self.present(controller, in: .window(.root))
+                            })
+                            self.push(controller)
+                        })
+                    default:
+                        let controller = starsRevenueWithdrawalController(context: context, peerId: context.account.peerId, amount: 0, initialError: error, present: { [weak self] c, a in
+                            self?.present(c, in: .window(.root))
+                        }, completion: { _ in
+                            
+                        })
+                        self.present(controller, in: .window(.root))
+                    }
+                })
+            } else {
+                let controller = self.context.sharedContext.makeStarsStatisticsScreen(context: context, peerId: context.account.peerId, revenueContext: self.starsRevenueStatsContext)
+                self.push(controller)
+            }
+        }
+        
+        showTimeoutTooltipImpl = { [weak self] cooldownUntilTimestamp in
+            guard let self, self.tooltipScreen == nil else {
+                return
+            }
+            
+            let remainingCooldownSeconds = cooldownUntilTimestamp - Int32(Date().timeIntervalSince1970)
+        
+            let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
+            let content: UndoOverlayContent = .universal(
+                animation: "anim_clock",
+                scale: 0.058,
+                colors: [:],
+                title: nil,
+                text: presentationData.strings.Stars_Withdraw_Withdraw_ErrorTimeout(stringForRemainingTime(remainingCooldownSeconds)).string,
+                customUndoText: nil,
+                timeout: nil
+            )
+            let controller = UndoOverlayController(presentationData: presentationData, content: content, elevatedLayout: false, position: .bottom, animateInAsReplacement: false, action: { _ in
+                return true
+            })
+            self.tooltipScreen = controller
+            self.present(controller, in: .window(.root))
+            
+            if remainingCooldownSeconds < 3600 {
+                if self.timer == nil {
+                    self.timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true, block: { [weak self] _ in
+                        guard let self else {
+                            return
+                        }
+                        
+                        if let tooltipScreen = self.tooltipScreen {
+                            let remainingCooldownSeconds = cooldownUntilTimestamp - Int32(Date().timeIntervalSince1970)
+                            let content: UndoOverlayContent = .universal(
+                                animation: "anim_clock",
+                                scale: 0.058,
+                                colors: [:],
+                                title: nil,
+                                text: presentationData.strings.Stars_Withdraw_Withdraw_ErrorTimeout(stringForRemainingTime(remainingCooldownSeconds)).string,
+                                customUndoText: nil,
+                                timeout: nil
+                            )
+                            tooltipScreen.content = content
+                        } else {
+                            if let timer = self.timer {
+                                self.timer = nil
+                                timer.invalidate()
+                            }
+                        }
+                    })
+                }
+            }
         }
         
         giftImpl = { [weak self] in
@@ -1237,7 +1524,7 @@ public final class StarsTransactionsScreen: ViewControllerComponentContainer {
         }
         
         self.starsContext.load(force: false)
-        self.subscriptionsContext.loadMore()
+        self.subscriptionsContext?.loadMore()
         
         self.scrollToTop = { [weak self] in
             guard let self else {
@@ -1258,6 +1545,6 @@ public final class StarsTransactionsScreen: ViewControllerComponentContainer {
     }
     
     public func update() {
-        self.subscriptionsContext.loadMore()
+        self.subscriptionsContext?.loadMore()
     }
 }

@@ -12,6 +12,8 @@ import AppBundle
 import AvatarNode
 import Markdown
 import GiftItemComponent
+import ChatMessagePaymentAlertController
+import ActivityIndicator
 
 private final class GiftTransferAlertContentNode: AlertContentNode {
     private let context: AccountContext
@@ -30,8 +32,18 @@ private final class GiftTransferAlertContentNode: AlertContentNode {
     private let actionNodesSeparator: ASDisplayNode
     private let actionNodes: [TextAlertContentActionNode]
     private let actionVerticalSeparators: [ASDisplayNode]
+    
+    private var activityIndicator: ActivityIndicator?
         
     private var validLayout: CGSize?
+    
+    var inProgress = false {
+        didSet {
+            if let size = self.validLayout {
+                let _ = self.updateLayout(size: size, transition: .immediate)
+            }
+        }
+    }
     
     override var dismissOnOutsideTap: Bool {
         return self.isUserInteractionEnabled
@@ -150,8 +162,9 @@ private final class GiftTransferAlertContentNode: AlertContentNode {
                 GiftItemComponent(
                     context: self.context,
                     theme: self.presentationTheme,
+                    strings: self.strings,
                     peer: nil,
-                    subject: .uniqueGift(gift: self.gift),
+                    subject: .uniqueGift(gift: self.gift, price: nil),
                     mode: .thumbnail
                 )
             ),
@@ -188,7 +201,6 @@ private final class GiftTransferAlertContentNode: AlertContentNode {
         let maxActionWidth: CGFloat = floor(size.width / CGFloat(self.actionNodes.count))
         let actionTitleInsets: CGFloat = 8.0
         
-        let effectiveActionLayout = TextAlertContentActionLayout.vertical
         for actionNode in self.actionNodes {
             let actionTitleSize = actionNode.titleNode.updateLayout(CGSize(width: maxActionWidth, height: actionButtonHeight))
             minActionsWidth = max(minActionsWidth, actionTitleSize.width + actionTitleInsets)
@@ -204,39 +216,42 @@ private final class GiftTransferAlertContentNode: AlertContentNode {
         transition.updateFrame(node: self.actionNodesSeparator, frame: CGRect(origin: CGPoint(x: 0.0, y: resultSize.height - actionsHeight - UIScreenPixel), size: CGSize(width: resultSize.width, height: UIScreenPixel)))
         
         var actionOffset: CGFloat = 0.0
-        let actionWidth: CGFloat = floor(resultSize.width / CGFloat(self.actionNodes.count))
+        //let actionWidth: CGFloat = floor(resultSize.width / CGFloat(self.actionNodes.count))
         var separatorIndex = -1
         var nodeIndex = 0
         for actionNode in self.actionNodes {
             if separatorIndex >= 0 {
                 let separatorNode = self.actionVerticalSeparators[separatorIndex]
-                switch effectiveActionLayout {
+                /*switch effectiveActionLayout {
                     case .horizontal:
                         transition.updateFrame(node: separatorNode, frame: CGRect(origin: CGPoint(x: actionOffset - UIScreenPixel, y: resultSize.height - actionsHeight), size: CGSize(width: UIScreenPixel, height: actionsHeight - UIScreenPixel)))
-                    case .vertical:
+                    case .vertical:*/
+                do {
                         transition.updateFrame(node: separatorNode, frame: CGRect(origin: CGPoint(x: 0.0, y: resultSize.height - actionsHeight + actionOffset - UIScreenPixel), size: CGSize(width: resultSize.width, height: UIScreenPixel)))
                 }
             }
             separatorIndex += 1
             
             let currentActionWidth: CGFloat
-            switch effectiveActionLayout {
+            /*switch effectiveActionLayout {
                 case .horizontal:
                     if nodeIndex == self.actionNodes.count - 1 {
                         currentActionWidth = resultSize.width - actionOffset
                     } else {
                         currentActionWidth = actionWidth
                     }
-                case .vertical:
+                case .vertical:*/
+            do {
                     currentActionWidth = resultSize.width
             }
             
             let actionNodeFrame: CGRect
-            switch effectiveActionLayout {
+            /*switch effectiveActionLayout {
                 case .horizontal:
                     actionNodeFrame = CGRect(origin: CGPoint(x: actionOffset, y: resultSize.height - actionsHeight), size: CGSize(width: currentActionWidth, height: actionButtonHeight))
                     actionOffset += currentActionWidth
-                case .vertical:
+                case .vertical:*/
+            do {
                     actionNodeFrame = CGRect(origin: CGPoint(x: 0.0, y: resultSize.height - actionsHeight + actionOffset), size: CGSize(width: currentActionWidth, height: actionButtonHeight))
                     actionOffset += actionButtonHeight
             }
@@ -246,11 +261,35 @@ private final class GiftTransferAlertContentNode: AlertContentNode {
             nodeIndex += 1
         }
         
+        if self.inProgress {
+            let activityIndicator: ActivityIndicator
+            if let current = self.activityIndicator {
+                activityIndicator = current
+            } else {
+                activityIndicator = ActivityIndicator(type: .custom(self.presentationTheme.list.freeInputField.controlColor, 18.0, 1.5, false))
+                self.addSubnode(activityIndicator)
+            }
+            
+            if let actionNode = self.actionNodes.first {
+                actionNode.isHidden = true
+                
+                let indicatorSize = CGSize(width: 22.0, height: 22.0)
+                transition.updateFrame(node: activityIndicator, frame: CGRect(origin: CGPoint(x: actionNode.frame.minX + floor((actionNode.frame.width - indicatorSize.width) / 2.0), y: actionNode.frame.minY + floor((actionNode.frame.height - indicatorSize.height) / 2.0)), size: indicatorSize))
+            }
+        }
+        
         return resultSize
     }
 }
 
-public func giftTransferAlertController(context: AccountContext, gift: StarGift.UniqueGift, peer: EnginePeer, transferStars: Int64, commit: @escaping () -> Void) -> AlertController {
+public func giftTransferAlertController(
+    context: AccountContext,
+    gift: StarGift.UniqueGift,
+    peer: EnginePeer,
+    transferStars: Int64,
+    navigationController: NavigationController?,
+    commit: @escaping () -> Void
+) -> AlertController {
     let presentationData = context.sharedContext.currentPresentationData.with { $0 }
     let strings = presentationData.strings
     
@@ -258,17 +297,17 @@ public func giftTransferAlertController(context: AccountContext, gift: StarGift.
     let text: String
     let buttonText: String
     if transferStars > 0 {
-        text = strings.Gift_Transfer_Confirmation_Text("\(gift.title) #\(gift.number)", peer.displayTitle(strings: strings, displayOrder: presentationData.nameDisplayOrder), strings.Gift_Transfer_Confirmation_Text_Stars(Int32(transferStars))).string
+        text = strings.Gift_Transfer_Confirmation_Text("\(gift.title) #\(presentationStringsFormattedNumber(gift.number, presentationData.dateTimeFormat.groupingSeparator))", peer.displayTitle(strings: strings, displayOrder: presentationData.nameDisplayOrder), strings.Gift_Transfer_Confirmation_Text_Stars(Int32(transferStars))).string
         buttonText = "\(strings.Gift_Transfer_Confirmation_Transfer)  $  \(transferStars)"
     } else {
-        text = strings.Gift_Transfer_Confirmation_TextFree("\(gift.title) #\(gift.number)", peer.displayTitle(strings: strings, displayOrder: presentationData.nameDisplayOrder)).string
+        text = strings.Gift_Transfer_Confirmation_TextFree("\(gift.title) #\(presentationStringsFormattedNumber(gift.number, presentationData.dateTimeFormat.groupingSeparator))", peer.displayTitle(strings: strings, displayOrder: presentationData.nameDisplayOrder)).string
         buttonText = strings.Gift_Transfer_Confirmation_TransferFree
     }
     
-    var dismissImpl: ((Bool) -> Void)?
     var contentNode: GiftTransferAlertContentNode?
-    let actions: [TextAlertAction] = [TextAlertAction(type: .defaultAction, title: buttonText, action: {
-        dismissImpl?(true)
+    var dismissImpl: ((Bool) -> Void)?
+    let actions: [TextAlertAction] = [TextAlertAction(type: .defaultAction, title: buttonText, action: { [weak contentNode] in
+        contentNode?.inProgress = true
         commit()
     }), TextAlertAction(type: .genericAction, title: presentationData.strings.Common_Cancel, action: {
         dismissImpl?(true)
@@ -276,7 +315,7 @@ public func giftTransferAlertController(context: AccountContext, gift: StarGift.
     
     contentNode = GiftTransferAlertContentNode(context: context, theme: AlertControllerTheme(presentationData: presentationData), ptheme: presentationData.theme, strings: strings, gift: gift, peer: peer, title: title, text: text, actions: actions)
     
-    let controller = AlertController(theme: AlertControllerTheme(presentationData: presentationData), contentNode: contentNode!)
+    let controller = ChatMessagePaymentAlertController(context: context, presentationData: presentationData, contentNode: contentNode!, navigationController: navigationController, chatPeerId: context.account.peerId, showBalance: transferStars > 0)
     dismissImpl = { [weak controller] animated in
         if animated {
             controller?.dismissAnimated()

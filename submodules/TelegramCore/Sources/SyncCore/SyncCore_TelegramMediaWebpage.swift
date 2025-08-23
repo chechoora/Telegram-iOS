@@ -1,37 +1,53 @@
 import Postbox
+import FlatBuffers
+import FlatSerialization
 
 private enum TelegramMediaWebpageAttributeTypes: Int32 {
     case unsupported
     case theme
     case stickerPack
+    case starGift
+    case giftCollection
 }
 
 public enum TelegramMediaWebpageAttribute: PostboxCoding, Equatable {
     case unsupported
     case theme(TelegraMediaWebpageThemeAttribute)
     case stickerPack(TelegramMediaWebpageStickerPackAttribute)
+    case starGift(TelegramMediaWebpageStarGiftAttribute)
+    case giftCollection(TelegramMediaWebpageGiftCollectionAttribute)
     
     public init(decoder: PostboxDecoder) {
         switch decoder.decodeInt32ForKey("r", orElse: 0) {
-            case TelegramMediaWebpageAttributeTypes.theme.rawValue:
-                self = .theme(decoder.decodeObjectForKey("a", decoder: { TelegraMediaWebpageThemeAttribute(decoder: $0) }) as! TelegraMediaWebpageThemeAttribute)
-            case TelegramMediaWebpageAttributeTypes.stickerPack.rawValue:
-                self = .stickerPack(decoder.decodeObjectForKey("a", decoder: { TelegramMediaWebpageStickerPackAttribute(decoder: $0) }) as! TelegramMediaWebpageStickerPackAttribute)
-            default:
-                self = .unsupported
+        case TelegramMediaWebpageAttributeTypes.theme.rawValue:
+            self = .theme(decoder.decodeObjectForKey("a", decoder: { TelegraMediaWebpageThemeAttribute(decoder: $0) }) as! TelegraMediaWebpageThemeAttribute)
+        case TelegramMediaWebpageAttributeTypes.stickerPack.rawValue:
+            self = .stickerPack(decoder.decodeObjectForKey("a", decoder: { TelegramMediaWebpageStickerPackAttribute(decoder: $0) }) as! TelegramMediaWebpageStickerPackAttribute)
+        case TelegramMediaWebpageAttributeTypes.starGift.rawValue:
+            self = .starGift(decoder.decodeObjectForKey("a", decoder: { TelegramMediaWebpageStarGiftAttribute(decoder: $0) }) as! TelegramMediaWebpageStarGiftAttribute)
+        case TelegramMediaWebpageAttributeTypes.giftCollection.rawValue:
+            self = .giftCollection(decoder.decodeObjectForKey("a", decoder: { TelegramMediaWebpageGiftCollectionAttribute(decoder: $0) }) as! TelegramMediaWebpageGiftCollectionAttribute)
+        default:
+            self = .unsupported
         }
     }
     
     public func encode(_ encoder: PostboxEncoder) {
         switch self {
-            case .unsupported:
-                encoder.encodeInt32(TelegramMediaWebpageAttributeTypes.unsupported.rawValue, forKey: "r")
-            case let .theme(attribute):
-                encoder.encodeInt32(TelegramMediaWebpageAttributeTypes.theme.rawValue, forKey: "r")
-                encoder.encodeObject(attribute, forKey: "a")
-            case let .stickerPack(attribute):
-                encoder.encodeInt32(TelegramMediaWebpageAttributeTypes.stickerPack.rawValue, forKey: "r")
-                encoder.encodeObject(attribute, forKey: "a")
+        case .unsupported:
+            encoder.encodeInt32(TelegramMediaWebpageAttributeTypes.unsupported.rawValue, forKey: "r")
+        case let .theme(attribute):
+            encoder.encodeInt32(TelegramMediaWebpageAttributeTypes.theme.rawValue, forKey: "r")
+            encoder.encodeObject(attribute, forKey: "a")
+        case let .stickerPack(attribute):
+            encoder.encodeInt32(TelegramMediaWebpageAttributeTypes.stickerPack.rawValue, forKey: "r")
+            encoder.encodeObject(attribute, forKey: "a")
+        case let .starGift(attribute):
+            encoder.encodeInt32(TelegramMediaWebpageAttributeTypes.starGift.rawValue, forKey: "r")
+            encoder.encodeObject(attribute, forKey: "a")
+        case let .giftCollection(attribute):
+            encoder.encodeInt32(TelegramMediaWebpageAttributeTypes.giftCollection.rawValue, forKey: "r")
+            encoder.encodeObject(attribute, forKey: "a")
         }
     }
 }
@@ -127,6 +143,58 @@ public final class TelegramMediaWebpageStickerPackAttribute: PostboxCoding, Equa
     }
 }
 
+public final class TelegramMediaWebpageStarGiftAttribute: PostboxCoding, Equatable {
+    public static func == (lhs: TelegramMediaWebpageStarGiftAttribute, rhs: TelegramMediaWebpageStarGiftAttribute) -> Bool {
+        if lhs.gift != rhs.gift {
+            return false
+        }
+        return true
+    }
+    
+    public let gift: StarGift
+    
+    public init(gift: StarGift) {
+        self.gift = gift
+    }
+    
+    public init(decoder: PostboxDecoder) {
+        self.gift = decoder.decodeObjectForKey("gift", decoder: { StarGift(decoder: $0) }) as! StarGift
+    }
+    
+    public func encode(_ encoder: PostboxEncoder) {
+        encoder.encodeObject(self.gift, forKey: "gift")
+    }
+}
+
+public final class TelegramMediaWebpageGiftCollectionAttribute: PostboxCoding, Equatable {
+    public static func == (lhs: TelegramMediaWebpageGiftCollectionAttribute, rhs: TelegramMediaWebpageGiftCollectionAttribute) -> Bool {
+        if lhs.files.count != rhs.files.count {
+            return false
+        } else {
+            for i in 0 ..< lhs.files.count {
+                if !lhs.files[i].isEqual(to: rhs.files[i]) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+    
+    public let files: [TelegramMediaFile]
+    
+    public init(files: [TelegramMediaFile]) {
+        self.files = files
+    }
+    
+    public init(decoder: PostboxDecoder) {
+        self.files = decoder.decodeObjectArrayForKey("files")
+    }
+    
+    public func encode(_ encoder: PostboxEncoder) {
+        encoder.encodeObjectArray(self.files, forKey: "files")
+    }
+}
+
 public final class TelegramMediaWebpageLoadedContent: PostboxCoding, Equatable {
     public let url: String
     public let displayUrl: String
@@ -141,12 +209,13 @@ public final class TelegramMediaWebpageLoadedContent: PostboxCoding, Equatable {
     public let duration: Int?
     public let author: String?
     public let isMediaLargeByDefault: Bool?
+    public let imageIsVideoCover: Bool
     
     public let image: TelegramMediaImage?
     public let file: TelegramMediaFile?
     public let story: TelegramMediaStory?
     public let attributes: [TelegramMediaWebpageAttribute]
-    public let instantPage: InstantPage?
+    public let instantPage: InstantPage.Accessor?
     
     public init(
         url: String,
@@ -162,6 +231,7 @@ public final class TelegramMediaWebpageLoadedContent: PostboxCoding, Equatable {
         duration: Int?,
         author: String?,
         isMediaLargeByDefault: Bool?,
+        imageIsVideoCover: Bool,
         image: TelegramMediaImage?,
         file: TelegramMediaFile?,
         story: TelegramMediaStory?,
@@ -181,11 +251,12 @@ public final class TelegramMediaWebpageLoadedContent: PostboxCoding, Equatable {
         self.duration = duration
         self.author = author
         self.isMediaLargeByDefault = isMediaLargeByDefault
+        self.imageIsVideoCover = imageIsVideoCover
         self.image = image
         self.file = file
         self.story = story
         self.attributes = attributes
-        self.instantPage = instantPage
+        self.instantPage = instantPage.flatMap(InstantPage.Accessor.init)
     }
     
     public init(decoder: PostboxDecoder) {
@@ -210,6 +281,7 @@ public final class TelegramMediaWebpageLoadedContent: PostboxCoding, Equatable {
         }
         self.author = decoder.decodeOptionalStringForKey("au")
         self.isMediaLargeByDefault = decoder.decodeOptionalBoolForKey("lbd")
+        self.imageIsVideoCover = decoder.decodeBoolForKey("isvc", orElse: false)
         
         if let image = decoder.decodeObjectForKey("im") as? TelegramMediaImage {
             self.image = image
@@ -238,8 +310,11 @@ public final class TelegramMediaWebpageLoadedContent: PostboxCoding, Equatable {
         }
         self.attributes = effectiveAttributes
         
-        if let instantPage = decoder.decodeObjectForKey("ip", decoder: { InstantPage(decoder: $0) }) as? InstantPage {
-            self.instantPage = instantPage
+        if let serializedInstantPageData = decoder.decodeDataForKey("ipd") {
+            var byteBuffer = ByteBuffer(data: serializedInstantPageData)
+            self.instantPage = InstantPage.Accessor(FlatBuffers_getRoot(byteBuffer: &byteBuffer) as TelegramCore_InstantPage, serializedInstantPageData)
+        } else if let instantPage = decoder.decodeObjectForKey("ip", decoder: { InstantPage(decoder: $0) }) as? InstantPage {
+            self.instantPage = InstantPage.Accessor(instantPage)
         } else {
             self.instantPage = nil
         }
@@ -301,6 +376,7 @@ public final class TelegramMediaWebpageLoadedContent: PostboxCoding, Equatable {
         } else {
             encoder.encodeNil(forKey: "lbd")
         }
+        encoder.encodeBool(self.imageIsVideoCover, forKey: "isvc")
         if let image = self.image {
             encoder.encodeObject(image, forKey: "im")
         } else {
@@ -320,9 +396,19 @@ public final class TelegramMediaWebpageLoadedContent: PostboxCoding, Equatable {
         encoder.encodeObjectArray(self.attributes, forKey: "attr")
         
         if let instantPage = self.instantPage {
-            encoder.encodeObject(instantPage, forKey: "ip")
+            if let instantPageData = instantPage._wrappedData {
+                encoder.encodeData(instantPageData, forKey: "ipd")
+            } else if let instantPage = instantPage._wrappedInstantPage {
+                var builder = FlatBufferBuilder(initialSize: 1024)
+                let value = instantPage.encodeToFlatBuffers(builder: &builder)
+                builder.finish(offset: value)
+                let serializedInstantPage = builder.data
+                encoder.encodeData(serializedInstantPage, forKey: "ipd")
+            } else {
+                preconditionFailure()
+            }
         } else {
-            encoder.encodeNil(forKey: "ip")
+            encoder.encodeNil(forKey: "ipd")
         }
     }
 }
@@ -344,6 +430,10 @@ public func ==(lhs: TelegramMediaWebpageLoadedContent, rhs: TelegramMediaWebpage
     }
     
     if lhs.isMediaLargeByDefault != rhs.isMediaLargeByDefault {
+        return false
+    }
+    
+    if lhs.imageIsVideoCover != rhs.imageIsVideoCover {
         return false
     }
     

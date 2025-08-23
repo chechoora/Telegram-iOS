@@ -57,6 +57,12 @@ public struct PresentationResourcesItemList {
         })
     }
     
+    public static func disabledCheckIconImage(_ theme: PresentationTheme) -> UIImage? {
+        return theme.image(PresentationResourceKey.itemListDisabledCheckIcon.rawValue, { theme in
+            return generateItemListCheckIcon(color: theme.list.itemDisabledTextColor)
+        })
+    }
+    
     public static func plusIconImage(_ theme: PresentationTheme) -> UIImage? {
         return theme.image(PresentationResourceKey.itemListPlusIcon.rawValue, { theme in
             return generateItemListPlusIcon(theme.list.itemAccentColor)
@@ -127,7 +133,16 @@ public struct PresentationResourcesItemList {
     
     public static func itemListReorderIndicatorIcon(_ theme: PresentationTheme) -> UIImage? {
         return theme.image(PresentationResourceKey.itemListReorderIndicatorIcon.rawValue, { theme in
-            return generateTintedImage(image: UIImage(bundleImageName: "Item List/Reorder"), color: theme.list.controlSecondaryColor)
+            return generateImage(CGSize(width: 17.0, height: 14.0), rotatedContext: { size, context in
+                context.clear(CGRect(origin: CGPoint(), size: size))
+                context.setFillColor(theme.list.itemBlocksSeparatorColor.cgColor)
+
+                let lineHeight = 1.0 + UIScreenPixel
+                context.addPath(CGPath(roundedRect: CGRect(x: 0.0, y: UIScreenPixel, width: 17.0, height: lineHeight), cornerWidth: lineHeight / 2.0, cornerHeight: lineHeight / 2.0, transform: nil))
+                context.addPath(CGPath(roundedRect: CGRect(x: 0.0, y: UIScreenPixel + 6.0, width: 17.0, height: lineHeight), cornerWidth: lineHeight / 2.0, cornerHeight: lineHeight / 2.0, transform: nil))
+                context.addPath(CGPath(roundedRect: CGRect(x: 0.0, y: UIScreenPixel + 12.0, width: 17.0, height: lineHeight), cornerWidth: lineHeight / 2.0, cornerHeight: lineHeight / 2.0, transform: nil))
+                context.fillPath()
+            })
         })
     }
     
@@ -430,6 +445,45 @@ public struct PresentationResourcesItemList {
     public static func expandSmallDownArrowImage(_ theme: PresentationTheme) -> UIImage? {
         return theme.image(PresentationResourceKey.expandSmallDownArrowImage.rawValue, { theme in
             return generateTintedImage(image: UIImage(bundleImageName: "Item List/ExpandingItemVerticalSmallArrow"), color: .white)?.withRenderingMode(.alwaysTemplate)
+        })
+    }
+    
+    public static func itemListRoundTopupIcon(_ theme: PresentationTheme) -> UIImage? {
+        return theme.image(PresentationResourceKey.itemListRoundTopupIcon.rawValue, { theme in
+            return generateImage(CGSize(width: 16.0, height: 18.0), rotatedContext: { size, context in
+                context.clear(CGRect(origin: CGPoint(), size: size))
+                
+                context.translateBy(x: 0.0, y: 2.0 - UIScreenPixel)
+                context.setFillColor(theme.list.itemCheckColors.foregroundColor.cgColor)
+                context.fillEllipse(in: CGRect(origin: CGPoint(), size: CGSize(width: size.width, height: size.width)))
+                
+                context.setBlendMode(.clear)
+                context.addPath(CGPath(roundedRect: CGRect(x: 7.0, y: 3.0, width: 2.0, height: 10.0), cornerWidth: 1.0, cornerHeight: 1.0, transform: nil))
+                context.addPath(CGPath(roundedRect: CGRect(x: 3.0, y: 7.0, width: 10.0, height: 2.0), cornerWidth: 1.0, cornerHeight: 1.0, transform: nil))
+                context.fillPath()
+            })
+        })
+    }
+    
+    public static func itemListRoundWithdrawIcon(_ theme: PresentationTheme) -> UIImage? {
+        return theme.image(PresentationResourceKey.itemListRoundWithdrawIcon.rawValue, { theme in
+            return generateImage(CGSize(width: 16.0, height: 18.0), rotatedContext: { size, context in
+                context.clear(CGRect(origin: CGPoint(), size: size))
+                
+                context.translateBy(x: 0.0, y: 2.0 - UIScreenPixel)
+                context.setFillColor(theme.list.itemCheckColors.foregroundColor.cgColor)
+                context.fillEllipse(in: CGRect(origin: CGPoint(), size: CGSize(width: size.width, height: size.width)))
+                
+                context.setBlendMode(.clear)
+                context.addPath(CGPath(roundedRect: CGRect(x: 3.0, y: 7.0, width: 10.0, height: 2.0), cornerWidth: 1.0, cornerHeight: 1.0, transform: nil))
+                context.fillPath()
+            })
+        })
+    }
+    
+    public static func itemListStatsIcon(_ theme: PresentationTheme) -> UIImage? {
+        return theme.image(PresentationResourceKey.itemListStatsIcon.rawValue, { theme in
+            return generateTintedImage(image: UIImage(bundleImageName: "Premium/Stars/Stats"), color: .white)?.withRenderingMode(.alwaysTemplate)
         })
     }
 }

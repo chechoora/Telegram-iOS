@@ -1122,6 +1122,14 @@ private final class StoryContainerScreenComponent: Component {
             self.didAnimateOut = true
         }
         
+        func inFocusUpdated(isInFocus: Bool) {
+            for (_, itemSetView) in self.visibleItemSetViews {
+                if let itemSetComponentView = itemSetView.view.view as? StoryItemSetContainerComponent.View {
+                    itemSetComponentView.inFocusUpdated(isInFocus: isInFocus)
+                }
+            }
+        }
+        
         private func updateVolumeButtonMonitoring() {
             guard self.volumeButtonsListener == nil, let component = self.component else {
                 return
@@ -1680,6 +1688,39 @@ private final class StoryContainerScreenComponent: Component {
                                         performReorderAction?()
                                     })
                                 },
+                                createToFolder: { [weak self] title, items in
+                                    guard let self, let component = self.component else {
+                                        return
+                                    }
+                                    
+                                    if let content = component.content as? PeerStoryListContentContextImpl {
+                                        if let listSource = content.listContext as? PeerStoryListContext {
+                                            let _ = listSource.addFolder(title: title, items: [], completion: { [weak listSource] id in
+                                                Queue.mainQueue().async {
+                                                    guard let listSource, let id else {
+                                                        return
+                                                    }
+                                                    if !items.isEmpty {
+                                                        let _ = listSource.addToFolder(id: id, items: items)
+                                                    }
+                                                }
+                                            })
+                                        }
+                                    }
+                                },
+                                addToFolder: { [weak self] folderId in
+                                    guard let self, let component = self.component else {
+                                        return
+                                    }
+                                    guard let stateValue = self.stateValue, let slice = stateValue.slice else {
+                                        return
+                                    }
+                                    if let content = component.content as? PeerStoryListContentContextImpl {
+                                        if let listSource = content.listContext as? PeerStoryListContext {
+                                            let _ = listSource.addToFolder(id: folderId, items: [slice.item.storyItem])
+                                        }
+                                    }
+                                },
                                 controller: { [weak self] in
                                     return self?.environment?.controller()
                                 },
@@ -2124,6 +2165,14 @@ public class StoryContainerScreen: ViewControllerComponentContainer {
                 completion?()
                 self.dismiss(animated: false)
             }
+        }
+    }
+    
+    override public func inFocusUpdated(isInFocus: Bool) {
+        super.inFocusUpdated(isInFocus: isInFocus)
+        
+        if let componentView = self.node.hostView.componentView as? StoryContainerScreenComponent.View {
+            componentView.inFocusUpdated(isInFocus: isInFocus)
         }
     }
 }

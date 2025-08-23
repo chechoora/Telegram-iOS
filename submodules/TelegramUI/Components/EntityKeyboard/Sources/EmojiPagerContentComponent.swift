@@ -28,9 +28,9 @@ import GenerateStickerPlaceholderImage
 
 public struct EmojiComponentReactionItem: Equatable {
     public var reaction: MessageReaction.Reaction
-    public var file: TelegramMediaFile
+    public var file: TelegramMediaFile.Accessor
     
-    public init(reaction: MessageReaction.Reaction, file: TelegramMediaFile) {
+    public init(reaction: MessageReaction.Reaction, file: TelegramMediaFile.Accessor) {
         self.reaction = reaction
         self.file = file
     }
@@ -40,12 +40,13 @@ public final class EntityKeyboardAnimationData: Equatable {
     public enum Id: Hashable {
         case file(MediaId)
         case stickerPackThumbnail(ItemCollectionId)
+        case gift(String)
     }
     
-    public enum ItemType {
+    public enum ItemType: Equatable {
         case still
         case lottie
-        case video
+        case video(isVP9: Bool)
         
         var animationCacheAnimationType: AnimationCacheAnimationType {
             switch self {
@@ -53,21 +54,47 @@ public final class EntityKeyboardAnimationData: Equatable {
                 return .still
             case .lottie:
                 return .lottie
-            case .video:
-                return .video
+            case let .video(isVP9):
+                return .video(isVP9: isVP9)
+            }
+        }
+    }
+    
+    public enum Resource: Equatable {
+        case resource(MediaResourceReference)
+        case stickerPackThumbnail(id: Int64, accessHash: Int64, info: StickerPackCollectionInfo.Accessor)
+        case file(PartialMediaReference?, TelegramMediaFile.Accessor)
+        
+        func _parse() -> MediaResourceReference? {
+            switch self {
+            case let .resource(resource):
+                return resource
+            case let .stickerPackThumbnail(id, accessHash, info):
+                guard let thumbnail = info._parse().thumbnail else {
+                    return nil
+                }
+                return .stickerPackThumbnail(stickerPack: .id(id: id, accessHash: accessHash), resource: thumbnail.resource)
+            case let .file(partialReference, file):
+                let file = file._parse()
+                if let partialReference {
+                    return partialReference.mediaReference(file).resourceReference(file.resource)
+                } else {
+                    return .standalone(resource: file.resource)
+                }
             }
         }
     }
     
     public let id: Id
     public let type: ItemType
-    public let resource: MediaResourceReference
+    public let resource: Resource
     public let dimensions: CGSize
     public let immediateThumbnailData: Data?
     public let isReaction: Bool
     public let isTemplate: Bool
+    public let particleColor: UIColor?
     
-    public init(id: Id, type: ItemType, resource: MediaResourceReference, dimensions: CGSize, immediateThumbnailData: Data?, isReaction: Bool, isTemplate: Bool) {
+    public init(id: Id, type: ItemType, resource: Resource, dimensions: CGSize, immediateThumbnailData: Data?, isReaction: Bool, isTemplate: Bool, particleColor: UIColor? = nil) {
         self.id = id
         self.type = type
         self.resource = resource
@@ -75,26 +102,43 @@ public final class EntityKeyboardAnimationData: Equatable {
         self.immediateThumbnailData = immediateThumbnailData
         self.isReaction = isReaction
         self.isTemplate = isTemplate
+        self.particleColor = particleColor
     }
     
-    public convenience init(file: TelegramMediaFile, isReaction: Bool = false, partialReference: PartialMediaReference? = nil) {
+    public convenience init(file: TelegramMediaFile.Accessor, isReaction: Bool = false, partialReference: PartialMediaReference? = nil) {
         let type: ItemType
         if file.isVideoSticker || file.isVideoEmoji {
-            type = .video
+            type = .video(isVP9: true)
         } else if file.isAnimatedSticker {
             type = .lottie
+        } else if file.isVideo {
+            type = .video(isVP9: false)
         } else {
             type = .still
         }
         let isTemplate = file.isCustomTemplateEmoji
         
-        let resourceReference: MediaResourceReference
-        if let partialReference {
-            resourceReference = partialReference.mediaReference(file).resourceReference(file.resource)
-        } else {
-            resourceReference = .standalone(resource: file.resource)
+        let resource: Resource = .file(partialReference, file)
+        self.init(id: .file(file.fileId), type: type, resource: resource, dimensions: file.dimensions?.cgSize ?? CGSize(width: 512.0, height: 512.0), immediateThumbnailData: file.immediateThumbnailData, isReaction: isReaction, isTemplate: isTemplate)
+    }
+    
+    public convenience init?(gift: StarGift.UniqueGift) {
+        var file: TelegramMediaFile?
+        var color: UIColor?
+        for attribute in gift.attributes {
+            if case let .model(_, fileValue, _) = attribute {
+                file = fileValue
+            } else if case let .backdrop(_, _, innerColor, outerColor, _, _, _) = attribute {
+                color = UIColor(rgb: UInt32(bitPattern: innerColor))
+                let _ = outerColor
+            }
         }
-        self.init(id: .file(file.fileId), type: type, resource: resourceReference, dimensions: file.dimensions?.cgSize ?? CGSize(width: 512.0, height: 512.0), immediateThumbnailData: file.immediateThumbnailData, isReaction: isReaction, isTemplate: isTemplate)
+        if let file, let color {
+            let resourceReference: MediaResourceReference = .standalone(resource: file.resource)
+            self.init(id: .gift(gift.slug), type: .lottie, resource: .resource(resourceReference), dimensions: file.dimensions?.cgSize ?? CGSize(width: 512.0, height: 512.0), immediateThumbnailData: file.immediateThumbnailData, isReaction: false, isTemplate: false, particleColor: color)
+        } else {
+            return nil
+        }
     }
     
     public static func ==(lhs: EntityKeyboardAnimationData, rhs: EntityKeyboardAnimationData) -> Bool {
@@ -102,7 +146,7 @@ public final class EntityKeyboardAnimationData: Equatable {
             return true
         }
         
-        if lhs.resource.resource.id != rhs.resource.resource.id {
+        if lhs.resource != rhs.resource {
             return false
         }
         if lhs.dimensions != rhs.dimensions {
@@ -133,27 +177,6 @@ public protocol EmojiCustomContentView: UIView {
 }
 
 public final class EmojiPagerContentComponent: Component {
-    public static let staticEmojiMapping: [(EmojiPagerContentComponent.StaticEmojiSegment, [String])] = {
-        guard let path = getAppBundle().path(forResource: "emoji1016", ofType: "txt") else {
-            return []
-        }
-        guard let string = try? String(contentsOf: URL(fileURLWithPath: path)) else {
-            return []
-        }
-        
-        var result: [(EmojiPagerContentComponent.StaticEmojiSegment, [String])] = []
-        
-        let orderedSegments = EmojiPagerContentComponent.StaticEmojiSegment.allCases
-        
-        let segments = string.components(separatedBy: "\n\n")
-        for i in 0 ..< min(segments.count, orderedSegments.count) {
-            let list = segments[i].components(separatedBy: " ")
-            result.append((orderedSegments[i], list))
-        }
-        
-        return result
-    }()
-    
     public typealias EnvironmentType = (EntityKeyboardChildEnvironment, PagerComponentChildEnvironment)
     
     public final class ContentAnimation {
@@ -335,6 +358,7 @@ public final class EmojiPagerContentComponent: Component {
             case animation(EntityKeyboardAnimationData.Id)
             case staticEmoji(String)
             case icon(Icon)
+            case starGift(String)
         }
         
         public enum Icon: Equatable, Hashable {
@@ -366,7 +390,7 @@ public final class EmojiPagerContentComponent: Component {
             case locked
             case premium
             case text(String)
-            case customFile(TelegramMediaFile)
+            case customFile(TelegramMediaFile.Accessor)
         }
         
         public enum TintMode: Equatable {
@@ -378,7 +402,8 @@ public final class EmojiPagerContentComponent: Component {
         
         public let animationData: EntityKeyboardAnimationData?
         public let content: ItemContent
-        public let itemFile: TelegramMediaFile?
+        public let itemFile: TelegramMediaFile.Accessor?
+        public let itemGift: StarGift.UniqueGift?
         public let subgroupId: Int32?
         public let icon: Icon
         public let tintMode: TintMode
@@ -386,7 +411,8 @@ public final class EmojiPagerContentComponent: Component {
         public init(
             animationData: EntityKeyboardAnimationData?,
             content: ItemContent,
-            itemFile: TelegramMediaFile?,
+            itemFile: TelegramMediaFile.Accessor?,
+            itemGift: StarGift.UniqueGift? = nil,
             subgroupId: Int32?,
             icon: Icon,
             tintMode: TintMode
@@ -394,6 +420,7 @@ public final class EmojiPagerContentComponent: Component {
             self.animationData = animationData
             self.content = content
             self.itemFile = itemFile
+            self.itemGift = itemGift
             self.subgroupId = subgroupId
             self.icon = icon
             self.tintMode = tintMode
@@ -403,13 +430,16 @@ public final class EmojiPagerContentComponent: Component {
             if lhs === rhs {
                 return true
             }
-            if lhs.animationData?.resource.resource.id != rhs.animationData?.resource.resource.id {
+            if lhs.animationData?.resource != rhs.animationData?.resource {
                 return false
             }
             if lhs.content != rhs.content {
                 return false
             }
             if lhs.itemFile?.fileId != rhs.itemFile?.fileId {
+                return false
+            }
+            if lhs.itemGift?.id != rhs.itemGift?.id {
                 return false
             }
             if lhs.subgroupId != rhs.subgroupId {
@@ -1694,7 +1724,9 @@ public final class EmojiPagerContentComponent: Component {
                         })
                     }
                     
-                    component.animationRenderer.setFrameIndex(itemId: animationData.resource.resource.id.stringRepresentation, size: itemLayer.pixelSize, frameIndex: sourceItem.frameIndex, placeholder: sourceItem.placeholder)
+                    if let resource = animationData.resource._parse() {
+                        component.animationRenderer.setFrameIndex(itemId: resource.resource.id.stringRepresentation, size: itemLayer.pixelSize, frameIndex: sourceItem.frameIndex, placeholder: sourceItem.placeholder)
+                    }
                 } else {
                     let distance = itemLayer.position.y - itemLayout.frame(groupIndex: 0, itemIndex: 0).midY
                     let maxDistance = self.bounds.height
@@ -2760,7 +2792,7 @@ public final class EmojiPagerContentComponent: Component {
                 
                 self.longPressItem = item.1
                 
-                if #available(iOS 13.0, *) {
+                if #available(iOS 13.0, *), item.0.itemFile != nil {
                     self.continuousHaptic = try? ContinuousHaptic(duration: longPressDuration)
                 }
                 
@@ -3461,6 +3493,9 @@ public final class EmojiPagerContentComponent: Component {
                             )
                             
                             self.visibleItemLayers[itemId] = itemLayer
+                            if let underlyingContentLayer = itemLayer.underlyingContentLayer {
+                                self.scrollView.layer.addSublayer(underlyingContentLayer)
+                            }
                             self.scrollView.layer.addSublayer(itemLayer)
                             if let tintContentLayer = itemLayer.tintContentLayer {
                                 self.mirrorContentScrollView.layer.addSublayer(tintContentLayer)
@@ -3692,6 +3727,7 @@ public final class EmojiPagerContentComponent: Component {
                             itemLayer.opacity = 0.0
                             itemLayer.animateScale(from: 1.0, to: 0.01, duration: 0.16)
                             itemLayer.animateAlpha(from: 1.0, to: 0.0, duration: 0.16, completion: { [weak itemLayer] _ in
+                                itemLayer?.underlyingContentLayer?.removeFromSuperlayer()
                                 itemLayer?.tintContentLayer?.removeFromSuperlayer()
                                 itemLayer?.removeFromSuperlayer()
                             })
@@ -3712,6 +3748,7 @@ public final class EmojiPagerContentComponent: Component {
                             }
                         } else if let position = updatedItemPositions?[.item(id: id)], transitionHintInstalledGroupId != id.groupId {
                             transition.setPosition(layer: itemLayer, position: position, completion: { [weak itemLayer] _ in
+                                itemLayer?.underlyingContentLayer?.removeFromSuperlayer()
                                 itemLayer?.tintContentLayer?.removeFromSuperlayer()
                                 itemLayer?.removeFromSuperlayer()
                             })
@@ -3726,6 +3763,7 @@ public final class EmojiPagerContentComponent: Component {
                             itemLayer.opacity = 0.0
                             itemLayer.animateScale(from: 1.0, to: 0.01, duration: 0.2)
                             itemLayer.animateAlpha(from: 1.0, to: 0.0, duration: 0.2, completion: { [weak itemLayer] _ in
+                                itemLayer?.underlyingContentLayer?.removeFromSuperlayer()
                                 itemLayer?.tintContentLayer?.removeFromSuperlayer()
                                 itemLayer?.removeFromSuperlayer()
                             })
@@ -3746,6 +3784,7 @@ public final class EmojiPagerContentComponent: Component {
                             }
                         }
                     } else {
+                        itemLayer.underlyingContentLayer?.removeFromSuperlayer()
                         itemLayer.tintContentLayer?.removeFromSuperlayer()
                         itemLayer.removeFromSuperlayer()
                         
@@ -4090,7 +4129,7 @@ public final class EmojiPagerContentComponent: Component {
                 if itemLayer.displayPlaceholder {
                     return nil
                 }
-                return (item.1.groupId, itemLayer, file)
+                return (item.1.groupId, itemLayer, file._parse())
             })
             
             let keyboardChildEnvironment = environment[EntityKeyboardChildEnvironment.self].value
@@ -4432,8 +4471,8 @@ public final class EmojiPagerContentComponent: Component {
             if self.warpView != nil {
                 scrollIndicatorInsets.bottom += 20.0
             }
-            if self.scrollView.scrollIndicatorInsets != scrollIndicatorInsets {
-                self.scrollView.scrollIndicatorInsets = scrollIndicatorInsets
+            if self.scrollView.verticalScrollIndicatorInsets != scrollIndicatorInsets {
+                self.scrollView.verticalScrollIndicatorInsets = scrollIndicatorInsets
             }
             self.previousScrollingOffset = ScrollingOffsetState(value: scrollView.contentOffset.y, isDraggingOrDecelerating: scrollView.isDragging || scrollView.isDecelerating)
             

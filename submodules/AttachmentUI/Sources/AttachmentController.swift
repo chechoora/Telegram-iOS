@@ -21,6 +21,7 @@ public enum AttachmentButtonType: Equatable {
     case gallery
     case file
     case location
+    case todo
     case quickReply
     case contact
     case poll
@@ -36,6 +37,8 @@ public enum AttachmentButtonType: Equatable {
             return "file"
         case .location:
             return "location"
+        case .todo:
+            return "todo"
         case .quickReply:
             return "quickReply"
         case .contact:
@@ -67,6 +70,12 @@ public enum AttachmentButtonType: Equatable {
             }
         case .location:
             if case .location = rhs {
+                return true
+            } else {
+                return false
+            }
+        case .todo:
+            if case .todo = rhs {
                 return true
             } else {
                 return false
@@ -1141,7 +1150,7 @@ public class AttachmentController: ViewController, MinimizableController {
             }
                             
             let isEffecitvelyCollapsedUpdated = (self.selectionCount > 0) != (self.panel.isSelecting)
-            let panelHeight = self.panel.update(layout: containerLayout, buttons: self.controller?.buttons ?? [], isSelecting: self.selectionCount > 0, elevateProgress: !hasPanel && !hasButton, transition: transition)
+            let panelHeight = self.panel.update(layout: containerLayout, buttons: self.controller?.buttons ?? [], isSelecting: self.selectionCount > 0, selectionCount: self.selectionCount, elevateProgress: !hasPanel && !hasButton, transition: transition)
             if hasPanel || hasButton {
                 containerInsets.bottom = panelHeight
             }

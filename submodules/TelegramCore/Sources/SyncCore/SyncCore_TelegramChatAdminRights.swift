@@ -1,4 +1,6 @@
 import Postbox
+import FlatBuffers
+import FlatSerialization
 
 public struct TelegramChatAdminRightsFlags: OptionSet, Hashable {
     public var rawValue: Int32
@@ -25,14 +27,14 @@ public struct TelegramChatAdminRightsFlags: OptionSet, Hashable {
     public static let canPostStories = TelegramChatAdminRightsFlags(rawValue: 1 << 14)
     public static let canEditStories = TelegramChatAdminRightsFlags(rawValue: 1 << 15)
     public static let canDeleteStories = TelegramChatAdminRightsFlags(rawValue: 1 << 16)
-
+    public static let canManageDirect = TelegramChatAdminRightsFlags(rawValue: 1 << 17)
     
     public static var all: TelegramChatAdminRightsFlags {
         return [.canChangeInfo, .canPostMessages, .canEditMessages, .canDeleteMessages, .canBanUsers, .canInviteUsers, .canPinMessages, .canAddAdmins, .canBeAnonymous, .canManageCalls, .canManageTopics, .canPostStories, .canEditStories, .canDeleteStories]
     }
     
     public static var allChannel: TelegramChatAdminRightsFlags {
-        return [.canChangeInfo, .canPostMessages, .canEditMessages, .canDeleteMessages, .canBanUsers, .canInviteUsers, .canPinMessages, .canAddAdmins, .canManageCalls, .canManageTopics, .canPostStories, .canEditStories, .canDeleteStories]
+        return [.canChangeInfo, .canPostMessages, .canEditMessages, .canDeleteMessages, .canBanUsers, .canInviteUsers, .canPinMessages, .canAddAdmins, .canManageCalls, .canManageTopics, .canPostStories, .canEditStories, .canDeleteStories, .canManageDirect]
     }
     
     public static let internal_groupSpecific: TelegramChatAdminRightsFlags = [
@@ -59,7 +61,8 @@ public struct TelegramChatAdminRightsFlags: OptionSet, Hashable {
         .canAddAdmins,
         .canPostStories,
         .canEditStories,
-        .canDeleteStories
+        .canDeleteStories,
+        .canManageDirect
     ]
     
     public static func peerSpecific(peer: EnginePeer) -> TelegramChatAdminRightsFlags {
@@ -123,5 +126,15 @@ public struct TelegramChatAdminRights: PostboxCoding, Codable, Equatable {
     
     public static func ==(lhs: TelegramChatAdminRights, rhs: TelegramChatAdminRights) -> Bool {
         return lhs.rights == rhs.rights
+    }
+    
+    public init(flatBuffersObject: TelegramCore_TelegramChatAdminRights) throws {
+        self.rights = TelegramChatAdminRightsFlags(rawValue: flatBuffersObject.rights)
+    }
+    
+    public func encodeToFlatBuffers(builder: inout FlatBufferBuilder) -> Offset {
+        let start = TelegramCore_TelegramChatAdminRights.startTelegramChatAdminRights(&builder)
+        TelegramCore_TelegramChatAdminRights.add(rights: self.rights.rawValue, &builder)
+        return TelegramCore_TelegramChatAdminRights.endTelegramChatAdminRights(&builder, start: start)
     }
 }

@@ -169,7 +169,7 @@ private final class TitleFieldComponent: Component {
             
             let iconContent: EmojiStatusComponent.Content
             if component.isGeneral {
-                iconContent = .image(image: generateTintedImage(image: UIImage(bundleImageName: "Chat List/GeneralTopicIcon"), color: component.placeholderColor))
+                iconContent = .image(image: generateTintedImage(image: UIImage(bundleImageName: "Chat List/GeneralTopicIcon"), color: component.placeholderColor), tintColor: nil)
                 self.iconButton.isUserInteractionEnabled = false
             } else if component.fileId == 0 {
                 iconContent = .topic(title: String(component.text.prefix(1)), color: component.iconColor, size: CGSize(width: 32.0, height: 32.0))
@@ -910,7 +910,7 @@ private final class ForumCreateTopicScreenComponent: CombinedComponent {
                                 }
                                 for featuredEmojiPack in view.items.lazy.map({ $0.contents.get(FeaturedStickerPackItem.self)! }) {
                                     if featuredEmojiPack.info.id == collectionId {
-                                        let _ = accountContext.engine.stickers.addStickerPackInteractively(info: featuredEmojiPack.info, items: featuredEmojiPack.topItems).start()
+                                        let _ = accountContext.engine.stickers.addStickerPackInteractively(info: featuredEmojiPack.info._parse(), items: featuredEmojiPack.topItems).start()
                                         
                                         break
                                     }

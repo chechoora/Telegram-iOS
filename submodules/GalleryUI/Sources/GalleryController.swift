@@ -77,7 +77,10 @@ private func mediaForMessage(message: Message) -> [(Media, TelegramMediaImage?)]
                 case let .Loaded(content):
                     if let embedUrl = content.embedUrl, !embedUrl.isEmpty {
                         return [(webpage, nil)]
-                    } else if let file = content.file {
+                    } else if var file = content.file {
+                        if content.imageIsVideoCover, let image = content.image {
+                            file = file.withUpdatedVideoCover(image)
+                        }
                         if let result = galleryMediaForMedia(media: file) {
                             return [(result, content.image)]
                         }
@@ -383,7 +386,7 @@ public func galleryItemForEntry(
                 }
             }
             if content == nil, let webEmbedContent = WebEmbedVideoContent(userLocation: .peer(message.id.peerId), webPage: webpage, webpageContent: webpageContent, forcedTimestamp: timecode.flatMap(Int.init), openUrl: { url in
-                performAction(.url(url: url.absoluteString, concealed: false))
+                performAction(.url(url: url.absoluteString, concealed: false, dismiss: true))
             }) {
                 content = webEmbedContent
             }
@@ -501,7 +504,7 @@ private enum GalleryMessageHistoryView {
 }
 
 public enum GalleryControllerInteractionTapAction {
-    case url(url: String, concealed: Bool)
+    case url(url: String, concealed: Bool, dismiss: Bool)
     case textMention(String)
     case peerMention(PeerId, String)
     case botCommand(String)
@@ -710,7 +713,7 @@ public class GalleryController: ViewController, StandalonePresentableController,
                         return .single(message.flatMap { ($0, false) })
                     }
                 }
-                translateToLanguage = chatTranslationState(context: context, peerId: messageId.peerId)
+                translateToLanguage = chatTranslationState(context: context, peerId: messageId.peerId, threadId: threadIdValue)
                 |> map { translationState in
                     if let translationState, translationState.isEnabled {
                         let translateToLanguage = translationState.toLang ?? baseLanguageCode
@@ -789,8 +792,8 @@ public class GalleryController: ViewController, StandalonePresentableController,
         let syncResult = Atomic<(Bool, (() -> Void)?)>(value: (false, nil))
         self.disposable.set(combineLatest(
             messageView,
-            self.context.account.postbox.preferencesView(keys: [PreferencesKeys.appConfiguration]),
-            translateToLanguage
+            self.context.account.postbox.preferencesView(keys: [PreferencesKeys.appConfiguration]) |> take(1),
+            translateToLanguage |> take(1)
         ).start(next: { [weak self] view, preferencesView, translateToLanguage in
             let f: () -> Void = {
                 if let strongSelf = self {
@@ -957,12 +960,13 @@ public class GalleryController: ViewController, StandalonePresentableController,
         
         performActionImpl = { [weak self] action in
             if let strongSelf = self {
-                if case .timecode = action {
+                if case let .url(_, _, dismiss) = action, !dismiss {
+                } else if case .timecode = action {
                 } else {
                     strongSelf.dismiss(forceAway: false)
                 }
                 switch action {
-                    case let .url(url, concealed):
+                    case let .url(url, concealed, _):
                         strongSelf.actionInteraction?.openUrl(url, concealed)
                     case let .textMention(mention):
                         strongSelf.actionInteraction?.openPeerMention(mention)
@@ -992,7 +996,7 @@ public class GalleryController: ViewController, StandalonePresentableController,
                     presentationData = presentationData.withUpdated(theme: defaultDarkColorPresentationTheme)
                 }
                 switch action {
-                    case let .url(url, _):
+                    case let .url(url, _, _):
                         var cleanUrl = url
                         var canAddToReadingList = true
                         let canOpenIn = availableOpenInOptions(context: strongSelf.context, item: .url(url: url)).count > 1
@@ -1284,7 +1288,7 @@ public class GalleryController: ViewController, StandalonePresentableController,
         self.dismiss(forceAway: false)
     }
     
-    private func dismiss(forceAway: Bool) {
+    func dismiss(forceAway: Bool) {
         var animatedOutNode = true
         var animatedOutInterface = false
         
@@ -1337,7 +1341,7 @@ public class GalleryController: ViewController, StandalonePresentableController,
         }, pushController: { [weak self] c in
             self?.baseNavigationController?.pushViewController(c)
             self?.dismiss(forceAway: true)
-        },  dismissController: { [weak self] in
+        }, dismissController: { [weak self] in
             self?.dismiss(forceAway: true)
         }, replaceRootController: { [weak self] controller, ready in
             if let strongSelf = self {
@@ -1400,32 +1404,51 @@ public class GalleryController: ViewController, StandalonePresentableController,
             self?.presentingViewController?.dismiss(animated: false, completion: nil)
         }
         
-        self.galleryNode.beginCustomDismiss = { [weak self] simpleAnimation in
+        self.galleryNode.beginCustomDismiss = { [weak self] animationType in
             if let strongSelf = self {
                 strongSelf.actionInteraction?.updateCanReadHistory(true)
                 strongSelf._hiddenMedia.set(.single(nil))
                 
-                let animatedOutNode = !simpleAnimation
-                
-                if let chatController = strongSelf.baseNavigationController?.topViewController as? ChatController {
-                    chatController.updatePushedTransition(0.0, transition: .animated(duration: 0.45, curve: .customSpring(damping: 180.0, initialVelocity: 0.0)))
+                if let hiddenMediaManagerIndex = strongSelf.hiddenMediaManagerIndex {
+                    strongSelf.hiddenMediaManagerIndex = nil
+                    strongSelf.context.sharedContext.mediaManager.galleryHiddenMediaManager.removeSource(hiddenMediaManagerIndex)
                 }
                 
-                strongSelf.galleryNode.animateOut(animateContent: animatedOutNode, completion: {
-                })
+                switch animationType {
+                case .default, .simpleAnimation:
+                    let animatedOutNode = animationType != .simpleAnimation
+                    
+                    if let chatController = strongSelf.baseNavigationController?.topViewController as? ChatController {
+                        chatController.updatePushedTransition(0.0, transition: .animated(duration: 0.45, curve: .customSpring(damping: 180.0, initialVelocity: 0.0)))
+                    }
+                    
+                    strongSelf.galleryNode.animateOut(animateContent: animatedOutNode, completion: {
+                    })
+                case .pip:
+                    break
+                }
             }
         }
         
         self.galleryNode.completeCustomDismiss = { [weak self] isPictureInPicture in
+            guard let self else {
+                return
+            }
+            
+            if let hiddenMediaManagerIndex = self.hiddenMediaManagerIndex {
+                self.hiddenMediaManagerIndex = nil
+                self.context.sharedContext.mediaManager.galleryHiddenMediaManager.removeSource(hiddenMediaManagerIndex)
+            }
+            
             if isPictureInPicture {
-                if let chatController = self?.baseNavigationController?.topViewController as? ChatController {
+                if let chatController = self.baseNavigationController?.topViewController as? ChatController {
                     chatController.updatePushedTransition(0.0, transition: .animated(duration: 0.45, curve: .customSpring(damping: 180.0, initialVelocity: 0.0)))
                 }
             } else {
-                self?._hiddenMedia.set(.single(nil))
+                self._hiddenMedia.set(.single(nil))
             }
             
-            self?.presentingViewController?.dismiss(animated: false, completion: nil)
+            self.presentingViewController?.dismiss(animated: false, completion: nil)
         }
         
         self.galleryNode.controlsVisibilityChanged = { [weak self] visible in
@@ -1663,6 +1686,22 @@ public class GalleryController: ViewController, StandalonePresentableController,
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
+        if let hiddenMediaManagerIndex = self.hiddenMediaManagerIndex {
+            self.hiddenMediaManagerIndex = nil
+            self.context.sharedContext.mediaManager.galleryHiddenMediaManager.removeSource(hiddenMediaManagerIndex)
+        }
+        
+        let context = self.context
+        let mediaManager = context.sharedContext.mediaManager
+        self.hiddenMediaManagerIndex = mediaManager.galleryHiddenMediaManager.addSource(self._hiddenMedia.get()
+        |> map { messageIdAndMedia in
+            if let (messageId, media) = messageIdAndMedia {
+                return .chat(context.account.id, messageId, media)
+            } else {
+                return nil
+            }
+        })
+        
         var nodeAnimatesItself = false
         
         if let centralItemNode = self.galleryNode.pager.centralItemNode() {
@@ -1847,5 +1886,24 @@ public class GalleryController: ViewController, StandalonePresentableController,
         let itemNodeShortcuts = self.galleryNode.pager.centralItemNode()?.keyShortcuts ?? []
         keyShortcuts.append(contentsOf: itemNodeShortcuts)
         return keyShortcuts
+    }
+    
+    public static func maybeExpandPIP(context: AccountContext, messageId: EngineMessage.Id) -> Bool {
+        guard let currentPictureInPictureNode = context.sharedContext.mediaManager.currentPictureInPictureNode as? UniversalVideoGalleryItemNode else {
+            return false
+        }
+        guard let item = currentPictureInPictureNode.item else {
+            return false
+        }
+        guard case let .message(message, _) = item.contentInfo else {
+            return false
+        }
+        if message.id != messageId {
+            return false
+        }
+        
+        currentPictureInPictureNode.expandPIP()
+        
+        return true
     }
 }

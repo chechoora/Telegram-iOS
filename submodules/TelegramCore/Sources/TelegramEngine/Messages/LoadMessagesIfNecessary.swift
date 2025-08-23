@@ -72,7 +72,7 @@ func _internal_getMessagesLoadIfNecessary(_ messageIds: [MessageId], postbox: Po
                             switch result {
                                 case let .messages(messages, chats, users):
                                     return (peer, messages, chats, users)
-                                case let .messagesSlice(_, _, _, _, messages, chats, users):
+                                case let .messagesSlice(_, _, _, _, _, messages, chats, users):
                                     return (peer, messages, chats, users)
                                 case let .channelMessages(_, _, _, _, messages, apiTopics, chats, users):
                                     let _ = apiTopics
@@ -100,7 +100,7 @@ func _internal_getMessagesLoadIfNecessary(_ messageIds: [MessageId], postbox: Po
                             var storeMessages: [StoreMessage] = []
                             
                             for message in messages {
-                                if let message = StoreMessage(apiMessage: message, accountPeerId: accountPeerId, peerIsForum: peer.isForum) {
+                                if let message = StoreMessage(apiMessage: message, accountPeerId: accountPeerId, peerIsForum: peer.isForumOrMonoForum) {
                                     storeMessages.append(message)
                                 }
                             }

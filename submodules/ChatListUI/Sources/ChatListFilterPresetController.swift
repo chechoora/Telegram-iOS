@@ -20,7 +20,7 @@ import AsyncDisplayKit
 import UndoUI
 import PeerNameColorItem
 import EntityKeyboard
-import ComposePollUI
+import ListComposePollOptionComponent
 import ChatEntityKeyboardInputNode
 import ComponentFlow
 import ChatPresentationInterfaceState
@@ -378,10 +378,9 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
         case .screenHeader:
             return ChatListFilterSettingsHeaderItem(context: arguments.context, theme: presentationData.theme, text: "", animation: .newFolder, sectionId: self.section)
         case let .nameHeader(title, enableAnimations):
-            //TODO:localize
             var actionText: String?
             if let enableAnimations {
-                actionText = enableAnimations ? "Disable Animations" : "Enable Animations"
+                actionText = enableAnimations ? presentationData.strings.ChatListFilter_NameDisableAnimations : presentationData.strings.ChatListFilter_NameEnableAnimations
             }
             return ItemListSectionHeaderItem(presentationData: presentationData, text: title, actionText: actionText, action: {
                 arguments.toggleNameAnimations()
@@ -545,6 +544,7 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
 }
 
 private struct ChatListFilterPresetControllerState: Equatable {
+    var isExisting: Bool
     var name: ChatFolderTitle
     var changedName: Bool
     var nameInputMode: ListComposePollOptionComponent.InputMode = .keyboard
@@ -563,6 +563,10 @@ private struct ChatListFilterPresetControllerState: Equatable {
     var isComplete: Bool {
         if self.name.text.isEmpty {
             return false
+        }
+        
+        if self.isExisting {
+            return true
         }
         
         let defaultCategories: ChatListFilterPeerCategories = .all
@@ -675,7 +679,6 @@ private func chatListFilterPresetControllerEntries(context: AccountContext, pres
         resolvedColor = context.peerNameColors.getChatFolderTag(tagColor, dark: presentationData.theme.overallDarkAppearance)
     }
     
-    //TODO:localize
     entries.append(.tagColorHeader(name: state.name, color: resolvedColor, isPremium: isPremium))
     entries.append(.tagColor(colors: context.peerNameColors, currentColor: tagColor, isPremium: isPremium))
     entries.append(.tagColorFooter)
@@ -1389,6 +1392,7 @@ func chatListFilterPresetController(context: AccountContext, currentPreset initi
         initialName = ChatFolderTitle(text: "", entities: [], enableAnimations: true)
     }
     var initialState = ChatListFilterPresetControllerState(
+        isExisting: initialPreset?.id != nil,
         name: initialName,
         changedName: initialPreset != nil,
         color: initialPreset?.data?.color,

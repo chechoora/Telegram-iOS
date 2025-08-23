@@ -2,6 +2,7 @@ import SwiftSignalKit
 import Postbox
 import TelegramCore
 import AsyncDisplayKit
+import UIKit
 import Display
 import TelegramPresentationData
 
@@ -20,7 +21,8 @@ public enum PeerInfoPaneKey: Int32 {
     case links
     case gifs
     case groupsInCommon
-    case recommended
+    case similarChannels
+    case similarBots
 }
 
 public struct PeerInfoStatusData: Equatable {

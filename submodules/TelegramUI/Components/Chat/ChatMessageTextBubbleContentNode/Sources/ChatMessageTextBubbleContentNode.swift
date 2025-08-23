@@ -264,6 +264,7 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                 }
                 var viewCount: Int?
                 var dateReplies = 0
+                var starsCount: Int64?
                 var dateReactionsAndPeers = mergedMessageReactionsAndPeers(accountPeerId: item.context.account.peerId, accountPeer: item.associatedData.accountPeer, message: item.topMessage)
                 if item.message.isRestricted(platform: "ios", contentSettings: item.context.currentContentSettings.with { $0 }) {
                     dateReactionsAndPeers = ([], [])
@@ -278,6 +279,8 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                         if let channel = item.message.peers[item.message.id.peerId] as? TelegramChannel, case .group = channel.info {
                             dateReplies = Int(attribute.count)
                         }
+                    } else if let attribute = attribute as? PaidStarsMessageAttribute, item.message.id.peerId.namespace == Namespaces.Peer.CloudChannel {
+                        starsCount = attribute.stars.value
                     }
                 }
                 
@@ -405,6 +408,18 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                                 isTranslating = false
                                 break
                             }
+                        }
+                    }
+                }
+                
+                
+                if incoming && item.associatedData.isSuspiciousPeer, let entities = messageEntities {
+                    messageEntities = entities.filter { entity in
+                        switch entity.type {
+                        case .Url, .TextUrl, .Mention, .TextMention, .Hashtag, .Email, .BankCard:
+                            return false
+                        default:
+                            return true
                         }
                     }
                 }
@@ -645,8 +660,10 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                         reactionPeers: dateReactionsAndPeers.peers,
                         displayAllReactionPeers: item.message.id.peerId.namespace == Namespaces.Peer.CloudUser,
                         areReactionsTags: item.topMessage.areReactionsTags(accountPeerId: item.context.account.peerId),
+                        areStarReactionsEnabled: item.associatedData.areStarReactionsEnabled,
                         messageEffect: item.topMessage.messageEffect(availableMessageEffects: item.associatedData.availableMessageEffects),
                         replyCount: dateReplies,
+                        starsCount: starsCount,
                         isPinned: item.message.tags.contains(.pinned) && (!item.associatedData.isInPinnedListMode || isReplyThread),
                         hasAutoremove: item.message.isSelfExpiring,
                         canViewReactionList: canViewMessageReactionList(message: item.topMessage),
@@ -730,7 +747,21 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                                     spoilerTextColor: messageTheme.primaryTextColor,
                                     spoilerEffectColor: messageTheme.secondaryTextColor,
                                     areContentAnimationsEnabled: item.context.sharedContext.energyUsageSettings.loopEmoji,
-                                    spoilerExpandRect: spoilerExpandRect
+                                    spoilerExpandRect: spoilerExpandRect,
+                                    crossfadeContents: { [weak strongSelf] sourceView in
+                                        guard let strongSelf else {
+                                            return
+                                        }
+                                        if let textNodeContainer = strongSelf.textNode.textNode.view.superview {
+                                            sourceView.frame = CGRect(origin: strongSelf.textNode.textNode.frame.origin, size: sourceView.bounds.size)
+                                            textNodeContainer.addSubview(sourceView)
+                                            
+                                            sourceView.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.12, removeOnCompletion: false, completion: { [weak sourceView] _ in
+                                                sourceView?.removeFromSuperview()
+                                            })
+                                            strongSelf.textNode.textNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.1)
+                                        }
+                                    }
                                 )
                             ))
                             animation.animator.updateFrame(layer: strongSelf.textNode.textNode.layer, frame: textFrame, completion: nil)
@@ -1007,9 +1038,9 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
                     let (emoji, fitz) = item.message.text.basicEmoji
                     var emojiFile: TelegramMediaFile?
                     
-                    emojiFile = item.associatedData.animatedEmojiStickers[emoji]?.first?.file
+                    emojiFile = item.associatedData.animatedEmojiStickers[emoji]?.first?.file._parse()
                     if emojiFile == nil {
-                        emojiFile = item.associatedData.animatedEmojiStickers[emoji.strippedEmoji]?.first?.file
+                        emojiFile = item.associatedData.animatedEmojiStickers[emoji.strippedEmoji]?.first?.file._parse()
                     }
                     
                     if let emojiFile = emojiFile {
@@ -1279,7 +1310,6 @@ public class ChatMessageTextBubbleContentNode: ChatMessageBubbleContentNode {
     public func updateQuoteTextHighlightState(text: String?, offset: Int?, color: UIColor, animated: Bool) {
         var rectsSet: [CGRect] = []
         if let text = text, !text.isEmpty, let cachedLayout = self.textNode.textNode.cachedLayout, let string = cachedLayout.attributedString?.string {
-            
             let quoteRange = findQuoteRange(string: string, quoteText: text, offset: offset)
             if let quoteRange, let rects = cachedLayout.rangeRects(in: quoteRange)?.rects, !rects.isEmpty {
                 rectsSet = rects

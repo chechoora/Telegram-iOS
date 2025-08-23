@@ -21,6 +21,27 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
         return (nil, nil)
     }
     
+    if context.isFrozen {
+        var isActuallyFrozen = true
+        let accountFreezeConfiguration = AccountFreezeConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 })
+        if let freezeAppealUrl = accountFreezeConfiguration.freezeAppealUrl {
+            let components = freezeAppealUrl.components(separatedBy: "/")
+            if let username = components.last, let peer = chatPresentationInterfaceState.renderedPeer?.peer, peer.addressName == username {
+                isActuallyFrozen = false
+            }
+        }
+        if isActuallyFrozen {
+            if let currentPanel = (currentPanel as? ChatRestrictedInputPanelNode) ?? (currentSecondaryPanel as? ChatRestrictedInputPanelNode) {
+                return (currentPanel, nil)
+            } else {
+                let panel = ChatRestrictedInputPanelNode()
+                panel.context = context
+                panel.interfaceInteraction = interfaceInteraction
+                return (panel, nil)
+            }
+        }
+    }
+    
     if let _ = chatPresentationInterfaceState.search {
         var selectionPanel: ChatMessageSelectionInputPanelNode?
         if let selectionState = chatPresentationInterfaceState.interfaceState.selectionState {
@@ -208,7 +229,37 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
                 }
             }
             
-            if channel.flags.contains(.isForum) && isMember {
+            if channel.flags.contains(.isMonoforum) {
+                if let linkedMonoforumId = channel.linkedMonoforumId, let mainChannel = chatPresentationInterfaceState.renderedPeer?.peers[linkedMonoforumId] as? TelegramChannel, mainChannel.hasPermission(.manageDirect), case .peer = chatPresentationInterfaceState.chatLocation {
+                    if chatPresentationInterfaceState.interfaceState.editMessage != nil || chatPresentationInterfaceState.interfaceState.postSuggestionState != nil {
+                        displayInputTextPanel = true
+                    } else if chatPresentationInterfaceState.interfaceState.replyMessageSubject == nil {
+                        displayInputTextPanel = false
+                        
+                        if !isMember {
+                            if let currentPanel = (currentPanel as? ChatChannelSubscriberInputPanelNode) ?? (currentSecondaryPanel as? ChatChannelSubscriberInputPanelNode) {
+                                return (currentPanel, nil)
+                            } else {
+                                let panel = ChatChannelSubscriberInputPanelNode()
+                                panel.interfaceInteraction = interfaceInteraction
+                                panel.context = context
+                                return (panel, nil)
+                            }
+                        } else {
+                            if let currentPanel = (currentPanel as? ChatRestrictedInputPanelNode) ?? (currentSecondaryPanel as? ChatRestrictedInputPanelNode) {
+                                return (currentPanel, nil)
+                            } else {
+                                let panel = ChatRestrictedInputPanelNode()
+                                panel.context = context
+                                panel.interfaceInteraction = interfaceInteraction
+                                return (panel, nil)
+                            }
+                        }
+                    }
+                } else {
+                    displayInputTextPanel = true
+                }
+            } else if channel.flags.contains(.isForum) && isMember {
                 var canManage = false
                 if channel.flags.contains(.isCreator) {
                     canManage = true
@@ -283,7 +334,7 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
             case .group:
                 switch channel.participationStatus {
                 case .kicked, .left:
-                    if !isMember {
+                    if !channel.flags.contains(.isMonoforum) && !isMember {
                         if let currentPanel = (currentPanel as? ChatChannelSubscriberInputPanelNode) ?? (currentSecondaryPanel as? ChatChannelSubscriberInputPanelNode) {
                             return (currentPanel, nil)
                         } else {
@@ -307,22 +358,6 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
                         break
                     }
                 }
-            }
-            
-            if channel.flags.contains(.isForum) {
-                /*if let _ = chatPresentationInterfaceState.threadData {
-                } else {
-                    if chatPresentationInterfaceState.interfaceState.replyMessageSubject == nil {
-                        if let currentPanel = (currentPanel as? ChatRestrictedInputPanelNode) ?? (currentSecondaryPanel as? ChatRestrictedInputPanelNode) {
-                            return (currentPanel, nil)
-                        } else {
-                            let panel = ChatRestrictedInputPanelNode()
-                            panel.context = context
-                            panel.interfaceInteraction = interfaceInteraction
-                            return (panel, nil)
-                        }
-                    }
-                }*/
             }
         } else if let group = peer as? TelegramGroup {
             switch group.membership {

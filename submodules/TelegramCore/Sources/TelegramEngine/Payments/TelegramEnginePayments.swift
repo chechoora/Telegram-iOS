@@ -39,11 +39,11 @@ public extension TelegramEngine {
         }
         
         public func sendAppStoreReceipt(receipt: Data, purpose: AppStoreTransactionPurpose) -> Signal<Never, AssignAppStoreTransactionError> {
-            return _internal_sendAppStoreReceipt(account: self.account, receipt: receipt, purpose: purpose)
+            return _internal_sendAppStoreReceipt(postbox: self.account.postbox, network: self.account.network, stateManager: self.account.stateManager, receipt: receipt, purpose: purpose)
         }
         
         public func canPurchasePremium(purpose: AppStoreTransactionPurpose) -> Signal<Bool, NoError> {
-            return _internal_canPurchasePremium(account: self.account, purpose: purpose)
+            return _internal_canPurchasePremium(postbox: self.account.postbox, network: self.account.network, purpose: purpose)
         }
         
         public func checkPremiumGiftCode(slug: String) -> Signal<PremiumGiftCodeInfo?, NoError> {
@@ -79,11 +79,15 @@ public extension TelegramEngine {
         }
         
         public func peerStarsContext() -> StarsContext {
-            return StarsContext(account: self.account)
+            return StarsContext(account: self.account, ton: false)
         }
         
-        public func peerStarsRevenueContext(peerId: EnginePeer.Id) -> StarsRevenueStatsContext {
-            return StarsRevenueStatsContext(account: self.account, peerId: peerId)
+        public func peerTonContext() -> StarsContext {
+            return StarsContext(account: self.account, ton: true)
+        }
+        
+        public func peerStarsRevenueContext(peerId: EnginePeer.Id, ton: Bool) -> StarsRevenueStatsContext {
+            return StarsRevenueStatsContext(account: self.account, peerId: peerId, ton: ton)
         }
         
         public func peerStarsTransactionsContext(subject: StarsTransactionsContext.Subject, mode: StarsTransactionsContext.Mode) -> StarsTransactionsContext {
@@ -110,27 +114,73 @@ public extension TelegramEngine {
         }
         
         public func keepStarGiftsUpdated() -> Signal<Never, NoError> {
-            return _internal_keepCachedStarGiftsUpdated(postbox: self.account.postbox, network: self.account.network)
+            return _internal_keepCachedStarGiftsUpdated(postbox: self.account.postbox, network: self.account.network, accountPeerId: self.account.peerId)
         }
         
-        public func convertStarGift(messageId: EngineMessage.Id) -> Signal<Never, NoError> {
-            return _internal_convertStarGift(account: self.account, messageId: messageId)
+        public func convertStarGift(reference: StarGiftReference) -> Signal<Never, NoError> {
+            return _internal_convertStarGift(account: self.account, reference: reference)
         }
         
-        public func updateStarGiftAddedToProfile(messageId: EngineMessage.Id, added: Bool) -> Signal<Never, NoError> {
-            return _internal_updateStarGiftAddedToProfile(account: self.account, messageId: messageId, added: added)
+        public func updateStarGiftAddedToProfile(reference: StarGiftReference, added: Bool) -> Signal<Never, NoError> {
+            return _internal_updateStarGiftAddedToProfile(account: self.account, reference: reference, added: added)
         }
         
-        public func transferStarGift(prepaid: Bool, messageId: EngineMessage.Id, peerId: EnginePeer.Id) -> Signal<Never, TransferStarGiftError> {
-            return _internal_transferStarGift(account: self.account, prepaid: prepaid, messageId: messageId, peerId: peerId)
+        public func transferStarGift(prepaid: Bool, reference: StarGiftReference, peerId: EnginePeer.Id) -> Signal<Never, TransferStarGiftError> {
+            return _internal_transferStarGift(account: self.account, prepaid: prepaid, reference: reference, peerId: peerId)
         }
         
-        public func upgradeStarGift(formId: Int64?, messageId: EngineMessage.Id, keepOriginalInfo: Bool) -> Signal<ProfileGiftsContext.State.StarGift, UpgradeStarGiftError> {
-            return _internal_upgradeStarGift(account: self.account, formId: formId, messageId: messageId, keepOriginalInfo: keepOriginalInfo)
+        public func buyStarGift(slug: String, peerId: EnginePeer.Id, price: CurrencyAmount?) -> Signal<Never, BuyStarGiftError> {
+            return _internal_buyStarGift(account: self.account, slug: slug, peerId: peerId, price: price)
+        }
+        
+        public func upgradeStarGift(formId: Int64?, reference: StarGiftReference, keepOriginalInfo: Bool) -> Signal<ProfileGiftsContext.State.StarGift, UpgradeStarGiftError> {
+            return _internal_upgradeStarGift(account: self.account, formId: formId, reference: reference, keepOriginalInfo: keepOriginalInfo)
         }
         
         public func starGiftUpgradePreview(giftId: Int64) -> Signal<[StarGift.UniqueGift.Attribute], NoError> {
             return _internal_starGiftUpgradePreview(account: self.account, giftId: giftId)
+        }
+        
+        public func getUniqueStarGift(slug: String) -> Signal<StarGift.UniqueGift?, NoError> {
+            return _internal_getUniqueStarGift(account: self.account, slug: slug)
+        }
+        
+        public func checkStarGiftWithdrawalAvailability(reference: StarGiftReference) -> Signal<Never, RequestStarGiftWithdrawalError> {
+            return _internal_checkStarGiftWithdrawalAvailability(account: self.account, reference: reference)
+        }
+        
+        public func requestStarGiftWithdrawalUrl(reference: StarGiftReference, password: String) -> Signal<String, RequestStarGiftWithdrawalError> {
+            return _internal_requestStarGiftWithdrawalUrl(account: account, reference: reference, password: password)
+        }
+        
+        public func toggleStarGiftsNotifications(peerId: EnginePeer.Id, enabled: Bool) -> Signal<Never, NoError> {
+            return _internal_toggleStarGiftsNotifications(account: self.account, peerId: peerId, enabled: enabled)
+        }
+        
+        public func updateStarGiftResalePrice(reference: StarGiftReference, price: CurrencyAmount?) -> Signal<Never, UpdateStarGiftPriceError> {
+            return _internal_updateStarGiftResalePrice(account: self.account, reference: reference, price: price)
+        }
+        
+        public func getStarsTransaction(reference: StarsTransactionReference) -> Signal<StarsContext.State.Transaction?, NoError> {
+            return _internal_getStarsTransaction(accountPeerId: self.account.peerId, postbox: self.account.postbox, network: self.account.network, transactionReference: reference)
+        }
+    }
+}
+
+public extension TelegramEngineUnauthorized {
+    final class Payments {
+        private let account: UnauthorizedAccount
+
+        init(account: UnauthorizedAccount) {
+            self.account = account
+        }
+
+        public func canPurchasePremium(purpose: AppStoreTransactionPurpose) -> Signal<Bool, NoError> {
+            return _internal_canPurchasePremium(postbox: self.account.postbox, network: self.account.network, purpose: purpose)
+        }
+        
+        public func sendAppStoreReceipt(receipt: Data, purpose: AppStoreTransactionPurpose) -> Signal<Never, AssignAppStoreTransactionError> {
+            return _internal_sendAppStoreReceipt(postbox: self.account.postbox, network: self.account.network, stateManager: self.account.stateManager, receipt: receipt, purpose: purpose)
         }
     }
 }

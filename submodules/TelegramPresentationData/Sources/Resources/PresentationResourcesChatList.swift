@@ -445,6 +445,12 @@ public struct PresentationResourcesChatList {
         })
     }
     
+    public static func generalTopicTemplateIcon(_ theme: PresentationTheme) -> UIImage? {
+        return theme.image(PresentationResourceKey.chatListGeneralTopicTemplateIcon.rawValue, { theme in
+            return generateTintedImage(image: UIImage(bundleImageName: "Chat List/GeneralTopicIcon"), color: .white)?.withRenderingMode(.alwaysTemplate)
+        })
+    }
+    
     public static func statusAutoremoveIcon(_ theme: PresentationTheme, isActive: Bool) -> UIImage? {
         return theme.image(PresentationResourceParameterKey.statusAutoremoveIcon(isActive: isActive), { theme in
             return generateTintedImage(image: UIImage(bundleImageName: isActive ? "Chat List/StatusIconAutoremoveOn" : "Chat List/StatusIconAutoremoveOff"), color: isActive ? theme.list.itemAccentColor : theme.list.itemSecondaryTextColor)
@@ -488,6 +494,29 @@ public struct PresentationResourcesChatList {
         })
     }
     
+    public static func shareAvatarStarsLockBadgeBackground(_ theme: PresentationTheme) -> UIImage? {
+        return theme.image(PresentationResourceKey.shareAvatarStarsLockBadgeBackground.rawValue, { theme in
+            return generateImage(CGSize(width: 20.0, height: 20.0), contextGenerator: { size, context in
+                context.clear(CGRect(origin: .zero, size: size))
+                context.setFillColor(UIColor.white.cgColor)
+                let rect = CGRect(origin: .zero, size: CGSize(width: 20.0, height: 18.0 + UIScreenPixel)).insetBy(dx: 1.0 - UIScreenPixel, dy: 0.0)
+                context.addPath(UIBezierPath(roundedRect: rect, cornerRadius: rect.height / 2.0).cgPath)
+                context.fillPath()
+            })?.withRenderingMode(.alwaysTemplate).stretchableImage(withLeftCapWidth: 10, topCapHeight: 10)
+        })
+    }
+    
+    public static func shareAvatarStarsLockBadgeInnerBackground(_ theme: PresentationTheme) -> UIImage? {
+        return theme.image(PresentationResourceKey.shareAvatarStarsLockBadgeInnerBackground.rawValue, { theme in
+            return generateImage(CGSize(width: 20.0, height: 16.0), contextGenerator: { size, context in
+                context.clear(CGRect(origin: .zero, size: size))
+                context.setFillColor(UIColor.white.cgColor)
+                context.addPath(UIBezierPath(roundedRect: CGRect(origin: .zero, size: CGSize(width: 20.0, height: 15.0)), cornerRadius: 7.5).cgPath)
+                context.fillPath()
+            })?.withRenderingMode(.alwaysTemplate).stretchableImage(withLeftCapWidth: 10, topCapHeight: 0)
+        })
+    }
+    
     public static func shareAvatarPremiumLockBadge(_ theme: PresentationTheme) -> UIImage? {
         return theme.image(PresentationResourceKey.shareAvatarPremiumLockBadge.rawValue, { theme in
             return generateImage(CGSize(width: 20.0, height: 20.0), contextGenerator: { size, context in
@@ -509,6 +538,40 @@ public struct PresentationResourcesChatList {
                     let imageSize = image.size.fitted(CGSize(width: 14.0, height: 14.0))
                     context.draw(cgImage, in: CGRect(origin: CGPoint(x: floor((size.width - imageSize.width) * 0.5), y: floor((size.height - imageSize.height) * 0.5)), size: imageSize))
                 }
+            })
+        })
+    }
+    
+    public static func searchAdIcon(_ theme: PresentationTheme, strings: PresentationStrings) -> UIImage? {
+        return theme.image(PresentationResourceKey.searchAdIcon.rawValue, { theme in
+            let titleString = NSAttributedString(string: strings.ChatList_Search_Ad, font: Font.regular(11.0), textColor: theme.list.itemAccentColor, paragraphAlignment: .center)
+            let stringRect = titleString.boundingRect(with: CGSize(width: 200.0, height: 20.0), options: .usesLineFragmentOrigin, context: nil)
+            
+            return generateImage(CGSize(width: floor(stringRect.width) + 18.0, height: 15.0), rotatedContext: { size, context in
+                let bounds = CGRect(origin: CGPoint(), size: size)
+                context.clear(bounds)
+                
+                context.setFillColor(theme.list.itemAccentColor.withMultipliedAlpha(0.1).cgColor)
+                context.addPath(UIBezierPath(roundedRect: bounds, cornerRadius: size.height / 2.0).cgPath)
+                context.fillPath()
+                
+                context.setFillColor(theme.list.itemAccentColor.cgColor)
+                
+                let circleSize = CGSize(width: 2.0 - UIScreenPixel, height: 2.0 - UIScreenPixel)
+                context.fillEllipse(in: CGRect(origin: CGPoint(x: size.width - 8.0, y: 3.0 + UIScreenPixel), size: circleSize))
+                context.fillEllipse(in: CGRect(origin: CGPoint(x: size.width - 8.0, y: 7.0 - UIScreenPixel), size: circleSize))
+                context.fillEllipse(in: CGRect(origin: CGPoint(x: size.width - 8.0, y: 10.0), size: circleSize))
+                
+                let textRect = CGRect(
+                    x: 5.0,
+                    y: (size.height - stringRect.height) / 2.0 - UIScreenPixel,
+                    width: stringRect.width,
+                    height: stringRect.height
+                )
+                           
+                UIGraphicsPushContext(context)
+                titleString.draw(in: textRect)
+                UIGraphicsPopContext()
             })
         })
     }

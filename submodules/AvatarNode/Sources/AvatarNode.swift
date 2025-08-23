@@ -25,6 +25,7 @@ private let anonymousSavedMessagesIcon = generateTintedImage(image: UIImage(bund
 private let anonymousSavedMessagesDarkIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/AnonymousSenderIcon"), color: UIColor(white: 1.0, alpha: 0.4))
 private let myNotesIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/MyNotesIcon"), color: .white)
 private let cameraIcon = generateTintedImage(image: UIImage(bundleImageName: "Avatar/CameraIcon"), color: .white)
+private let storyIcon = generateTintedImage(image: UIImage(bundleImageName: "Share/Story"), color: .white)
 
 public func avatarPlaceholderFont(size: CGFloat) -> UIFont {
     return Font.with(size: size, design: .round, weight: .bold)
@@ -34,6 +35,7 @@ public enum AvatarNodeClipStyle {
     case none
     case round
     case roundedRect
+    case bubble
 }
 
 private class AvatarNodeParameters: NSObject {
@@ -87,7 +89,7 @@ public func calculateAvatarColors(context: AccountContext?, explicitColorIndex: 
     }
     
     let colors: [UIColor]
-    if icon != .none && icon != .cameraIcon {
+    if icon != .none {
         if case .deletedIcon = icon {
             colors = AvatarNode.grayscaleColors
         } else if case .phoneIcon = icon {
@@ -95,6 +97,8 @@ public func calculateAvatarColors(context: AccountContext?, explicitColorIndex: 
         } else if case .savedMessagesIcon = icon {
             colors = AvatarNode.savedMessagesColors
         } else if case .repostIcon = icon {
+            colors = AvatarNode.repostColors
+        } else if case .storyIcon = icon {
             colors = AvatarNode.repostColors
         } else if case .repliesIcon = icon {
             colors = AvatarNode.savedMessagesColors
@@ -120,6 +124,8 @@ public func calculateAvatarColors(context: AccountContext?, explicitColorIndex: 
                 backgroundColors = theme.chatList.pinnedArchiveAvatarColor.backgroundColors.colors
             }
             colors = [backgroundColors.1, backgroundColors.0]
+        } else if case .cameraIcon = icon {
+            colors = AvatarNode.repostColors
         } else {
             colors = AvatarNode.grayscaleColors
         }
@@ -198,6 +204,7 @@ public enum AvatarNodeIcon: Equatable {
     case phoneIcon
     case repostIcon
     case cameraIcon
+    case storyIcon
 }
 
 public enum AvatarNodeImageOverride: Equatable {
@@ -213,6 +220,7 @@ public enum AvatarNodeImageOverride: Equatable {
     case phoneIcon
     case repostIcon
     case cameraIcon
+    case storyIcon
 }
 
 public enum AvatarNodeColorOverride {
@@ -264,7 +272,36 @@ public final class AvatarEditOverlayNode: ASDisplayNode {
     }
 }
 
+private func generateAvatarBubblePath() -> CGPath {
+    return try! convertSvgPath("M60,30.274903 C60,46.843446 46.568544,60.274904 30,60.274904 C13.431458,60.274904 0,46.843446 0,30.274903 C0,23.634797 2.158635,17.499547 5.810547,12.529785 L6.036133,12.226074 C6.921364,10.896042 7.367402,8.104698 5.548828,5.316895 C3.606939,2.340088 1.186019,0.979668 2.399414,0.470215 C3.148032,0.156204 7.572027,0.000065 10.764648,1.790527 C12.148517,2.56662 13.2296,3.342422 14.09224,4.039734 C14.42622,4.309704 14.892063,4.349773 15.265962,4.138523 C19.618079,1.679604 24.644722,0.274902 30,0.274902 C46.568544,0.274902 60,13.70636 60,30.274903 Z ")
+}
+
 public final class AvatarNode: ASDisplayNode {
+    public static func avatarBubbleMask(size: CGSize) -> UIImage! {
+        return generateImage(size, rotatedContext: { size, context in
+            context.clear(CGRect(origin: CGPoint(), size: size))
+            context.setFillColor(UIColor.white.cgColor)
+            AvatarNode.addAvatarBubblePath(context: context, rect: CGRect(origin: CGPoint(), size: size))
+            context.fillPath()
+        })
+    }
+    
+    public static let avatarBubblePath: CGPath = generateAvatarBubblePath()
+    
+    public static func addAvatarBubblePath(context: CGContext, rect: CGRect) {
+        let path = AvatarNode.avatarBubblePath
+        let sx = rect.width / 60.0
+        let sy = rect.height / 60.274904
+        var transform = CGAffineTransform(
+            a: sx, b: 0.0,
+            c: 0.0, d: -sy,
+            tx: rect.minX,
+            ty: rect.minY + rect.height
+        )
+        let transformedPath = path.copy(using: &transform)!
+        context.addPath(transformedPath)
+    }
+    
     public static let gradientColors: [[UIColor]] = [
         [UIColor(rgb: 0xff516a), UIColor(rgb: 0xff885e)],
         [UIColor(rgb: 0xffa85c), UIColor(rgb: 0xffcd6a)],
@@ -288,22 +325,25 @@ public final class AvatarNode: ASDisplayNode {
     ]
     
     static let repostColors: [UIColor] = [
-        UIColor(rgb: 0x34C76F), UIColor(rgb: 0x3DA1FD)
+        UIColor(rgb: 0x3DA1FD), UIColor(rgb: 0x34C76F)
     ]
     
     public final class ContentNode: ASDisplayNode {
         private struct Params: Equatable {
             let peerId: EnginePeer.Id?
             let resourceId: String?
+            let displayDimensions: CGSize
             let clipStyle: AvatarNodeClipStyle
             
             init(
                 peerId: EnginePeer.Id?,
                 resourceId: String?,
+                displayDimensions: CGSize,
                 clipStyle: AvatarNodeClipStyle
             ) {
                 self.peerId = peerId
                 self.resourceId = resourceId
+                self.displayDimensions = displayDimensions
                 self.clipStyle = clipStyle
             }
         }
@@ -325,6 +365,7 @@ public final class AvatarNode: ASDisplayNode {
         private var theme: PresentationTheme?
         private var overrideImage: AvatarNodeImageOverride?
         public let imageNode: ImageNode
+        private var imageNodeMask: UIImageView?
         public var editOverlayNode: AvatarEditOverlayNode?
         
         private let imageReadyDisposable = MetaDisposable()
@@ -334,7 +375,7 @@ public final class AvatarNode: ASDisplayNode {
         private var currentImage: UIImage?
         
         private var params: Params?
-        private var loadDisposable: Disposable?
+        private var loadDisposable = MetaDisposable()
         
         var clipStyle: AvatarNodeClipStyle {
             if let params = self.params {
@@ -389,7 +430,7 @@ public final class AvatarNode: ASDisplayNode {
             self.displaysAsynchronously = true
             self.disableClearContentsOnHide = true
             
-            self.imageNode.isLayerBacked = true
+            self.imageNode.isUserInteractionEnabled = false
             self.addSubnode(self.imageNode)
             
             self.imageNode.contentUpdated = { [weak self] image in
@@ -410,7 +451,7 @@ public final class AvatarNode: ASDisplayNode {
         }
         
         deinit {
-            self.loadDisposable?.dispose()
+            self.loadDisposable.dispose()
         }
         
         override public func didLoad() {
@@ -424,6 +465,9 @@ public final class AvatarNode: ASDisplayNode {
         public func updateSize(size: CGSize) {
             self.imageNode.frame = CGRect(origin: CGPoint(), size: size)
             self.editOverlayNode?.frame = self.imageNode.frame
+            if let imageNodeMask = self.imageNodeMask {
+                imageNodeMask.frame = CGRect(origin: CGPoint(), size: size)
+            }
             if !self.displaySuspended {
                 self.setNeedsDisplay()
                 self.editOverlayNode?.setNeedsDisplay()
@@ -490,6 +534,30 @@ public final class AvatarNode: ASDisplayNode {
             }
         }
         
+        public func playCameraAnimation() {
+            let animationBackgroundNode = ASImageNode()
+            animationBackgroundNode.isUserInteractionEnabled = false
+            animationBackgroundNode.frame = self.imageNode.frame
+            animationBackgroundNode.image = generateGradientFilledCircleImage(diameter: self.imageNode.frame.width, colors: AvatarNode.repostColors.map { $0.cgColor } as NSArray)
+            self.addSubnode(animationBackgroundNode)
+            
+            let animationNode = AnimationNode(animation: "anim_camera", colors: [:], scale: 0.082)
+            animationNode.isUserInteractionEnabled = false
+            self.addSubnode(animationNode)
+            
+            if var size = animationNode.preferredSize() {
+                size = CGSize(width: ceil(size.width), height: ceil(size.height))
+                animationNode.frame = CGRect(x: floor((self.bounds.width - size.width) / 2.0) + 1.0, y: floor((self.bounds.height - size.height) / 2.0), width: size.width, height: size.height)
+                Queue.mainQueue().after(0.15, {
+                    animationNode.play()
+                    animationNode.completion = { [weak animationNode, weak animationBackgroundNode] in
+                        animationNode?.removeFromSupernode()
+                        animationBackgroundNode?.removeFromSupernode()
+                    }
+                })
+            }
+        }
+        
         public func setPeer(
             accountPeerId: EnginePeer.Id,
             postbox: Postbox,
@@ -546,6 +614,9 @@ public final class AvatarNode: ASDisplayNode {
                 case .cameraIcon:
                     representation = nil
                     icon = .cameraIcon
+                case .storyIcon:
+                    representation = nil
+                    icon = .storyIcon
                 }
             } else if peer?.restrictionText(platform: "ios", contentSettings: contentSettings) == nil {
                 representation = peer?.smallProfileImage
@@ -635,11 +706,13 @@ public final class AvatarNode: ASDisplayNode {
             let params = Params(
                 peerId: peer?.id,
                 resourceId: smallProfileImage?.resource.id.stringRepresentation,
+                displayDimensions: displayDimensions,
                 clipStyle: clipStyle
             )
             if self.params == params {
                 return
             }
+            let previousSize = self.params?.displayDimensions
             self.params = params
             
             switch clipStyle {
@@ -652,6 +725,29 @@ public final class AvatarNode: ASDisplayNode {
             case .roundedRect:
                 self.imageNode.clipsToBounds = true
                 self.imageNode.cornerRadius = displayDimensions.height * 0.25
+            case .bubble:
+                break
+            }
+            
+            if case .bubble = clipStyle {
+                var updateMask = false
+                let imageNodeMask: UIImageView
+                if let current = self.imageNodeMask {
+                    imageNodeMask = current
+                    updateMask = previousSize != params.displayDimensions
+                } else {
+                    imageNodeMask = UIImageView()
+                    self.imageNodeMask = imageNodeMask
+                    self.imageNode.view.mask = imageNodeMask
+                    imageNodeMask.frame = self.imageNode.frame
+                    updateMask = true
+                }
+                if updateMask {
+                    imageNodeMask.image = AvatarNode.avatarBubbleMask(size: params.displayDimensions)
+                }
+            } else if self.imageNodeMask != nil {
+                self.imageNodeMask = nil
+                self.imageNode.view.mask = nil
             }
             
             if let imageCache = genericContext.imageCache as? DirectMediaImageCache, let peer, let smallProfileImage = peer.smallProfileImage, let peerReference = PeerReference(peer._asPeer()) {
@@ -660,12 +756,12 @@ public final class AvatarNode: ASDisplayNode {
                         self.imageNode.contents = image.cgImage
                     }
                     if let loadSignal = result.loadSignal {
-                        self.loadDisposable = (loadSignal |> deliverOnMainQueue).start(next: { [weak self] image in
+                        self.loadDisposable.set((loadSignal |> deliverOnMainQueue).start(next: { [weak self] image in
                             guard let self else {
                                 return
                             }
                             self.imageNode.contents = image?.cgImage
-                        }).strict()
+                        }).strict())
                     }
                 }
             }
@@ -725,6 +821,9 @@ public final class AvatarNode: ASDisplayNode {
                 case .cameraIcon:
                     representation = nil
                     icon = .cameraIcon
+                case .storyIcon:
+                    representation = nil
+                    icon = .storyIcon
                 }
             } else if peer?.restrictionText(platform: "ios", contentSettings: genericContext.currentContentSettings.with { $0 }) == nil {
                 representation = peer?.smallProfileImage
@@ -861,6 +960,10 @@ public final class AvatarNode: ASDisplayNode {
                     context.beginPath()
                     context.addPath(UIBezierPath(roundedRect: CGRect(x: 0.0, y: 0.0, width: bounds.size.width, height: bounds.size.height), cornerRadius: floor(bounds.size.width * 0.25)).cgPath)
                     context.clip()
+                } else if case .bubble = parameters.clipStyle {
+                    context.beginPath()
+                    AvatarNode.addAvatarBubblePath(context: context, rect: CGRect(x: 0.0, y: 0.0, width: bounds.size.width, height: bounds.size.height))
+                    context.clip()
                 }
             } else {
                 colors = grayscaleColors
@@ -976,6 +1079,15 @@ public final class AvatarNode: ASDisplayNode {
                     
                     if let cameraIcon = cameraIcon {
                         context.draw(cameraIcon.cgImage!, in: CGRect(origin: CGPoint(x: floor((bounds.size.width - cameraIcon.size.width) / 2.0), y: floor((bounds.size.height - cameraIcon.size.height) / 2.0)), size: cameraIcon.size))
+                    }
+                } else if case .storyIcon = parameters.icon {
+                    let factor = bounds.size.width / 60.0
+                    context.translateBy(x: bounds.size.width / 2.0, y: bounds.size.height / 2.0)
+                    context.scaleBy(x: factor, y: -factor)
+                    context.translateBy(x: -bounds.size.width / 2.0, y: -bounds.size.height / 2.0)
+                    
+                    if let storyIcon = storyIcon {
+                        context.draw(storyIcon.cgImage!, in: CGRect(origin: CGPoint(x: floor((bounds.size.width - storyIcon.size.width) / 2.0), y: floor((bounds.size.height - storyIcon.size.height) / 2.0)), size: storyIcon.size))
                     }
                 } else if case .editAvatarIcon = parameters.icon, let theme = parameters.theme, !parameters.hasImage {
                     context.translateBy(x: bounds.size.width / 2.0, y: bounds.size.height / 2.0)
@@ -1147,6 +1259,10 @@ public final class AvatarNode: ASDisplayNode {
     
     public func playRepostAnimation() {
         self.contentNode.playRepostAnimation()
+    }
+    
+    public func playCameraAnimation() {
+        self.contentNode.playCameraAnimation ()
     }
     
     public func setPeer(
@@ -1418,3 +1534,4 @@ public final class AvatarNode: ASDisplayNode {
         }
     }
 }
+

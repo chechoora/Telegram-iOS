@@ -53,6 +53,7 @@ public class PremiumLimitDisplayComponent: Component {
     private let activeTitleColor: UIColor
     private let badgeIconName: String?
     private let badgeText: String?
+    private let badgeTextSuffix: String?
     private let badgePosition: CGFloat
     private let badgeGraphPosition: CGFloat
     private let invertProgress: Bool
@@ -69,6 +70,7 @@ public class PremiumLimitDisplayComponent: Component {
         activeTitleColor: UIColor,
         badgeIconName: String?,
         badgeText: String?,
+        badgeTextSuffix: String? = nil,
         badgePosition: CGFloat,
         badgeGraphPosition: CGFloat,
         invertProgress: Bool = false,
@@ -84,6 +86,7 @@ public class PremiumLimitDisplayComponent: Component {
         self.activeTitleColor = activeTitleColor
         self.badgeIconName = badgeIconName
         self.badgeText = badgeText
+        self.badgeTextSuffix = badgeTextSuffix
         self.badgePosition = badgePosition
         self.badgeGraphPosition = badgeGraphPosition
         self.invertProgress = invertProgress
@@ -119,6 +122,9 @@ public class PremiumLimitDisplayComponent: Component {
             return false
         }
         if lhs.badgeText != rhs.badgeText {
+            return false
+        }
+        if lhs.badgeTextSuffix != rhs.badgeTextSuffix {
             return false
         }
         if lhs.badgePosition != rhs.badgePosition {
@@ -197,7 +203,7 @@ public class PremiumLimitDisplayComponent: Component {
             self.badgeIcon.contentMode = .center
                         
             self.badgeLabel = BadgeLabelView()
-            let _ = self.badgeLabel.update(value: "0", transition: .immediate)
+            let _ = self.badgeLabel.update(value: "0", suffix: nil, transition: .immediate)
             self.badgeLabel.mask = self.badgeLabelMaskView
             
             super.init(frame: frame)
@@ -312,7 +318,7 @@ public class PremiumLimitDisplayComponent: Component {
                 if from == nil {
                     frameTransition = frameTransition.withAnimation(.none)
                 }
-                let badgeLabelSize = self.badgeLabel.update(value: badgeText, transition: transition)
+                let badgeLabelSize = self.badgeLabel.update(value: badgeText, suffix: component.badgeTextSuffix, transition: transition)
                 frameTransition.setFrame(view: self.badgeLabel, frame: CGRect(origin: CGPoint(x: 14.0 + floorToScreenPixels((badgeFullSize.width - badgeLabelSize.width) / 2.0), y: 5.0), size: badgeLabelSize))
             }
         }
@@ -514,22 +520,7 @@ public class PremiumLimitDisplayComponent: Component {
             
             let countWidth: CGFloat
             if let badgeText = component.badgeText {
-                switch badgeText.count {
-                    case 1:
-                        countWidth = 20.0
-                    case 2:
-                        countWidth = 35.0
-                    case 3:
-                        countWidth = 51.0
-                    case 4:
-                        countWidth = 60.0
-                    case 5:
-                        countWidth = 74.0
-                    case 6:
-                        countWidth = 88.0
-                    default:
-                        countWidth = 51.0
-                }
+                countWidth = BadgeLabelView.calculateSize(value: badgeText, suffix: component.badgeTextSuffix).width + 4.0
             } else {
                 countWidth = 51.0
             }
@@ -603,7 +594,7 @@ public class PremiumLimitDisplayComponent: Component {
             }
     
             self.badgeIcon.frame = CGRect(x: 10.0, y: 9.0, width: 30.0, height: 30.0)
-            self.badgeLabelMaskView.frame = CGRect(x: 0.0, y: 0.0, width: 100.0, height: 36.0)
+            self.badgeLabelMaskView.frame = CGRect(x: 0.0, y: 0.0, width: 200.0, height: 36.0)
             
             if component.isPremiumDisabled {
                 if !self.didPlayAppearanceAnimation {
@@ -611,7 +602,7 @@ public class PremiumLimitDisplayComponent: Component {
                     
                     self.badgeView.alpha = 1.0
                     if let badgeText = component.badgeText {
-                        let badgeLabelSize = self.badgeLabel.update(value: badgeText, transition: .immediate)
+                        let badgeLabelSize = self.badgeLabel.update(value: badgeText, suffix: component.badgeTextSuffix, transition: .immediate)
                         transition.setFrame(view: self.badgeLabel, frame: CGRect(origin: CGPoint(x: 14.0 + floorToScreenPixels((badgeFullSize.width - badgeLabelSize.width) / 2.0), y: 5.0), size: badgeLabelSize))
                     }
                 }
@@ -621,7 +612,7 @@ public class PremiumLimitDisplayComponent: Component {
                     if component.badgePosition < 0.1 {
                         self.badgeView.alpha = 1.0
                         if let badgeText = component.badgeText {
-                            let badgeLabelSize = self.badgeLabel.update(value: badgeText, transition: .immediate)
+                            let badgeLabelSize = self.badgeLabel.update(value: badgeText, suffix: component.badgeTextSuffix, transition: .immediate)
                             transition.setFrame(view: self.badgeLabel, frame: CGRect(origin: CGPoint(x: 14.0 + floorToScreenPixels((badgeFullSize.width - badgeLabelSize.width) / 2.0), y: 5.0), size: badgeLabelSize))
                         }
                     } else {
@@ -1088,7 +1079,14 @@ private final class LimitSheetContent: CombinedComponent {
                 let premiumLimit = state.premiumLimits.maxExpiringStoriesCount
                 iconName = "Premium/Stories"
                 badgeText = "\(limit)"
-                string = component.count >= premiumLimit ? strings.Premium_MaxExpiringStoriesFinalText("\(premiumLimit)").string : strings.Premium_MaxExpiringStoriesText("\(limit)", "\(premiumLimit)").string
+                if component.count >= premiumLimit {
+                    let limitNumberString = strings.Premium_MaxExpiringStoriesFinalTextNumberFormat(Int32(premiumLimit))
+                    string = strings.Premium_MaxExpiringStoriesFinalTextFormat(limitNumberString).string
+                } else {
+                    let limitNumberString = strings.Premium_MaxExpiringStoriesTextNumberFormat(Int32(limit))
+                    let premiumLimitNumberString = strings.Premium_MaxExpiringStoriesTextPremiumNumberFormat(Int32(premiumLimit))
+                    string = strings.Premium_MaxExpiringStoriesTextFormat(limitNumberString, premiumLimitNumberString).string
+                }
                 defaultValue = ""
                 premiumValue = component.count >= premiumLimit ? "" : "\(premiumLimit)"
                 badgePosition = max(0.32, CGFloat(component.count) / CGFloat(premiumLimit))
@@ -1096,7 +1094,33 @@ private final class LimitSheetContent: CombinedComponent {
             
                 if isPremiumDisabled {
                     badgeText = "\(limit)"
-                    string = strings.Premium_MaxExpiringStoriesNoPremiumText("\(limit)").string
+                    let numberString = strings.Premium_MaxExpiringStoriesNoPremiumTextNumberFormat(Int32(limit))
+                    string = strings.Premium_MaxExpiringStoriesNoPremiumTextFormat(numberString).string
+                }
+                buttonAnimationName = nil
+            case .multiStories:
+                let limit = state.limits.maxExpiringStoriesCount
+                let premiumLimit = state.premiumLimits.maxExpiringStoriesCount
+                iconName = "Premium/Stories"
+                badgeText = "\(limit)"
+                if component.count >= premiumLimit {
+                    let limitNumberString = strings.Premium_MaxExpiringStoriesFinalTextNumberFormat(Int32(premiumLimit))
+                    string = strings.Premium_MaxExpiringStoriesFinalTextFormat(limitNumberString).string
+                } else {
+                    let limitNumberString = strings.Premium_MaxExpiringStoriesTextNumberFormat(Int32(limit))
+                    let premiumLimitNumberString = strings.Premium_MaxExpiringStoriesTextPremiumNumberFormat(Int32(premiumLimit))
+                    string = strings.Premium_MaxExpiringStoriesTextFormat(limitNumberString, premiumLimitNumberString).string
+                }
+                defaultValue = ""
+                premiumValue = component.count >= premiumLimit ? "" : "\(premiumLimit)"
+                badgePosition = max(0.32, CGFloat(component.count) / CGFloat(premiumLimit))
+                badgeGraphPosition = badgePosition
+                titleText = strings.Premium_CreateMultipleStories
+                
+                if isPremiumDisabled {
+                    badgeText = "\(limit)"
+                    let numberString = strings.Premium_MaxExpiringStoriesNoPremiumTextNumberFormat(Int32(limit))
+                    string = strings.Premium_MaxExpiringStoriesNoPremiumTextFormat(numberString).string
                 }
                 buttonAnimationName = nil
             case .storiesWeekly:
@@ -1201,7 +1225,6 @@ private final class LimitSheetContent: CombinedComponent {
                 if let nextLevelBoosts {
                     remaining = nextLevelBoosts - component.count
                 }
-                
                 
                 if let _ = link {
                     if let remaining {
@@ -1805,6 +1828,7 @@ public class PremiumLimitScreen: ViewControllerComponentContainer {
         case membershipInSharedFolders
         case channels
         case expiringStories
+        case multiStories
         case storiesWeekly
         case storiesMonthly
         

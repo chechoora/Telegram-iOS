@@ -172,8 +172,10 @@ public final class ContextControllerActionsListActionItemNode: HighlightTracking
             }
             if highlighted {
                 strongSelf.highlightBackgroundNode.alpha = 1.0
+                strongSelf.startTimer()
             } else {
                 strongSelf.highlightBackgroundNode.alpha = 0.0
+                strongSelf.invalidateTimer()
             }
         }
         
@@ -183,6 +185,25 @@ public final class ContextControllerActionsListActionItemNode: HighlightTracking
     deinit {
         self.iconDisposable?.dispose()
     }
+        
+    private var timer: SwiftSignalKit.Timer?
+    private func startTimer() {
+        self.invalidateTimer()
+        
+        self.timer = SwiftSignalKit.Timer(timeout: 1.0, repeat: false, completion: { [weak self] in
+            guard let self else {
+                return
+            }
+            self.invalidateTimer()
+            self.longPressed()
+        }, queue: Queue.mainQueue())
+        self.timer?.start()
+    }
+    
+    private func invalidateTimer() {
+        self.timer?.invalidate()
+        self.timer = nil
+    }
     
     public override func didLoad() {
         super.didLoad()
@@ -191,7 +212,29 @@ public final class ContextControllerActionsListActionItemNode: HighlightTracking
     }
     
     @objc private func pressed() {
+        self.invalidateTimer()
+        
         self.item.action?(ContextMenuActionItem.Action(
+            controller: self.getController(),
+            dismissWithResult: { [weak self] result in
+                guard let strongSelf = self else {
+                    return
+                }
+                strongSelf.requestDismiss(result)
+            },
+            updateAction: { [weak self] id, updatedAction in
+                guard let strongSelf = self else {
+                    return
+                }
+                strongSelf.requestUpdateAction(id, updatedAction)
+            }
+        ))
+    }
+    
+    private func longPressed() {
+        self.touchesCancelled(nil, with: nil)
+        
+        self.item.longPressAction?(ContextMenuActionItem.Action(
             controller: self.getController(),
             dismissWithResult: { [weak self] result in
                 guard let strongSelf = self else {
@@ -230,7 +273,7 @@ public final class ContextControllerActionsListActionItemNode: HighlightTracking
         return super.hitTest(point, with: event)
     }
     
-    func setItem(item: ContextMenuActionItem) {
+    public func setItem(item: ContextMenuActionItem) {
         self.item = item
         self.accessibilityLabel = item.text
     }
@@ -318,14 +361,25 @@ public final class ContextControllerActionsListActionItemNode: HighlightTracking
                 let inputStateText = ChatTextInputStateText(text: self.item.text, attributes: self.item.entities.compactMap { entity -> ChatTextInputStateTextAttribute? in
                     if case let .CustomEmoji(_, fileId) = entity.type {
                         return ChatTextInputStateTextAttribute(type: .customEmoji(stickerPack: nil, fileId: fileId, enableAnimation: true), range: entity.range)
+                    } else if case .Bold = entity.type {
+                        return ChatTextInputStateTextAttribute(type: .bold, range: entity.range)
+                    } else if case .Italic = entity.type {
+                        return ChatTextInputStateTextAttribute(type: .italic, range: entity.range)
                     }
                     return nil
                 })
-                let result = NSMutableAttributedString(attributedString: inputStateText.attributedText())
+                let result = NSMutableAttributedString(attributedString: inputStateText.attributedText(files: self.item.entityFiles))
                 result.addAttributes([
                     .font: titleFont,
                     .foregroundColor: titleColor
                 ], range: NSRange(location: 0, length: result.length))
+                for attribute in inputStateText.attributes {
+                    if case .bold = attribute.type {
+                        result.addAttribute(NSAttributedString.Key.font, value: Font.semibold(presentationData.listsFontSize.baseDisplaySize), range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
+                    } else if case .italic = attribute.type {
+                        result.addAttribute(NSAttributedString.Key.font, value: Font.semibold(15.0), range: NSRange(location: attribute.range.lowerBound, length: attribute.range.count))
+                    }
+                }
                 attributedText = result
             } else {
                 attributedText = parseMarkdownIntoAttributedString(
@@ -600,13 +654,16 @@ public final class ContextControllerActionsListActionItemNode: HighlightTracking
             }
             
             if let additionalIconSize {
-                let iconFrame = CGRect(
+                var iconFrame = CGRect(
                     origin: CGPoint(
                         x: 10.0,
                         y: floor((size.height - additionalIconSize.height) / 2.0)
                     ),
                     size: additionalIconSize
                 )
+                if self.item.iconPosition == .left {
+                    iconFrame.origin.x = size.width - additionalIconSize.width - 10.0
+                }
                 transition.updateFrame(node: self.additionalIconNode, frame: iconFrame, beginWithCurrentState: true)
             }
         })

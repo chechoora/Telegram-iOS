@@ -334,7 +334,7 @@ public final class LocationMapNode: ASDisplayNode, MKMapViewDelegateTarget {
         mapView.mapType = self.mapMode.mapType
         mapView.isRotateEnabled = self.isRotateEnabled
         mapView.showsUserLocation = true
-        mapView.showsPointsOfInterest = false
+        mapView.pointOfInterestFilter = .excludingAll
         mapView.showsCompass = false
         mapView.customHitTest = { [weak self] point in
             guard let strongSelf = self else {
@@ -423,7 +423,12 @@ public final class LocationMapNode: ASDisplayNode, MKMapViewDelegateTarget {
             self.mapView?.setRegion(region, animated: animated)
         } else {
             let mapRect = MKMapRect(region: region)
-            self.mapView?.setVisibleMapRect(mapRect, edgePadding: UIEdgeInsets(top: offset.y + self.topPadding, left: offset.x, bottom: 0.0, right: 0.0), animated: animated)
+            var effectiveTopOffset: CGFloat = offset.y
+            if #available(iOS 18.0, *) {
+            } else {
+                effectiveTopOffset += self.topPadding
+            }
+            self.mapView?.setVisibleMapRect(mapRect, edgePadding: UIEdgeInsets(top: effectiveTopOffset, left: offset.x, bottom: 0.0, right: 0.0), animated: animated)
         }
         self.ignoreRegionChanges = false
         
