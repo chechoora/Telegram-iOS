@@ -60,7 +60,7 @@ private final class StickerPackListContextItemNode: ASDisplayNode, ContextMenuCu
                 if let resource = thumbnailResource as? CloudDocumentMediaResource {
                     resourceId = resource.fileId
                 }
-                let thumbnailFile = topItem?.file ?? TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.CloudFile, id: resourceId), partialReference: nil, resource: thumbnailResource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "image/webp", size: thumbnailResource.size ?? 0, attributes: [])
+                let thumbnailFile = topItem?.file ?? TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.CloudFile, id: resourceId), partialReference: nil, resource: thumbnailResource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "image/webp", size: thumbnailResource.size ?? 0, attributes: [], alternativeRepresentations: [])
 
                 let _ = freeMediaFileInteractiveFetched(account: item.context.account, userLocation: .other, fileReference: .stickerPack(stickerPack: .id(id: pack.id.id, accessHash: pack.accessHash), media: thumbnailFile)).start()
                 thumbnailIconSource = ContextMenuActionItemIconSource(
@@ -79,7 +79,7 @@ private final class StickerPackListContextItemNode: ASDisplayNode, ContextMenuCu
                     f(.dismissWithoutContent)
                 }
             })
-            let actionNode = ContextControllerActionsListActionItemNode(getController: getController, requestDismiss: actionSelected, requestUpdateAction: { _, _ in }, item: action)
+            let actionNode = ContextControllerActionsListActionItemNode(context: nil, getController: getController, requestDismiss: actionSelected, requestUpdateAction: { _, _ in }, item: action)
             actionNodes.append(actionNode)
             if actionNodes.count != item.packs.count {
                 let separatorNode = ASDisplayNode()

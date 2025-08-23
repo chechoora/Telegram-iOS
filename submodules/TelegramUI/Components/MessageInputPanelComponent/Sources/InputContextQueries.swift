@@ -111,7 +111,7 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, cha
                 case .installed:
                     scope = [.installed]
             }
-            return context.engine.stickers.searchStickers(query: [query.basicEmoji.0], scope: scope)
+            return context.engine.stickers.searchStickers(query: nil, emoticon: [query.basicEmoji.0], scope: scope)
             |> map { items -> [FoundStickerItem] in
                 return items.items
             }
@@ -130,10 +130,10 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, cha
                 case .hashtag:
                     break
                 default:
-                    signal = .single({ _ in return .hashtags([]) })
+                    signal = .single({ _ in return .hashtags([], query) })
             }
         } else {
-            signal = .single({ _ in return .hashtags([]) })
+            signal = .single({ _ in return .hashtags([], query) })
         }
         
         let hashtags: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, ChatContextQueryError> = context.engine.messages.recentlyUsedHashtags()
@@ -145,7 +145,7 @@ private func updatedContextQueryResultStateForQuery(context: AccountContext, cha
                     result.append(hashtag)
                 }
             }
-            return { _ in return .hashtags(result) }
+            return { _ in return .hashtags(result, query) }
         }
         |> castError(ChatContextQueryError.self)
         

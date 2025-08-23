@@ -362,7 +362,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             UIDevice.current.isBatteryMonitoringEnabled = true
         }
         
-        
         let clearNotificationsManager = ClearNotificationsManager(getNotificationIds: { completion in
             if #available(iOS 10.0, *) {
                 UNUserNotificationCenter.current().getDeliveredNotifications(completionHandler: { notifications in
@@ -1492,9 +1491,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         
         let timestamp = Int(CFAbsoluteTimeGetCurrent())
         let minReindexTimestamp = timestamp - 2 * 24 * 60 * 60
-        if let indexTimestamp = UserDefaults.standard.object(forKey: "TelegramCacheIndexTimestamp") as? NSNumber, indexTimestamp.intValue >= minReindexTimestamp {
+        if let indexTimestamp = UserDefaults.standard.object(forKey: "TelegramCacheIndexTimestamp_v2") as? NSNumber, indexTimestamp.intValue >= minReindexTimestamp {
         } else {
-            UserDefaults.standard.set(timestamp as NSNumber, forKey: "TelegramCacheIndexTimestamp")
+            UserDefaults.standard.set(timestamp as NSNumber, forKey: "TelegramCacheIndexTimestamp_v2")
             
             Logger.shared.log("App \(self.episodeId)", "Executing low-impact cache reindex in foreground")
             let _ = self.runCacheReindexTasks(lowImpact: true, completion: {
@@ -1553,6 +1552,48 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         })
         
         //self.addBackgroundDownloadTask()
+        
+        let reflectorBenchmarkDisposable = MetaDisposable()
+        let runReflectorBenchmarkDisposable = MetaDisposable()
+        let _ = (self.context.get()
+        |> deliverOnMainQueue).startStandalone(next: { context in
+            reflectorBenchmarkDisposable.set(nil)
+            runReflectorBenchmarkDisposable.set(nil)
+            
+            guard let context = context?.context else {
+                return
+            }
+            var defaultAutoBenchmarkReflectors = false
+            if case .internal = context.sharedContext.applicationBindings.appBuildType {
+                defaultAutoBenchmarkReflectors = true
+            }
+            if context.sharedContext.immediateExperimentalUISettings.autoBenchmarkReflectors ?? defaultAutoBenchmarkReflectors {
+                reflectorBenchmarkDisposable.set((context.sharedContext.applicationBindings.applicationInForeground
+                |> distinctUntilChanged
+                |> deliverOnMainQueue).startStrict(next: { value in
+                    if value {
+                        let signal: Signal<ReflectorBenchmark.Results, NoError> = Signal { subscriber in
+                            var reflectorBenchmark: ReflectorBenchmark? = ReflectorBenchmark(address: "91.108.13.35", port: 599)
+                            reflectorBenchmark?.start(completion: { results in
+                                subscriber.putNext(results)
+                                subscriber.putCompletion()
+                            })
+                            
+                            return ActionDisposable {
+                                reflectorBenchmark = nil
+                            }
+                        }
+                        |> runOn(.mainQueue())
+                        |> delay(Double.random(in: 1.0 ..< 5.0), queue: Queue.mainQueue())
+                        runReflectorBenchmarkDisposable.set(signal.startStrict(next: { results in
+                            print("Reflector banchmark:\nBandwidth: \(results.bandwidthBytesPerSecond * 8 / 1024) kbit/s (expected \(results.expectedBandwidthBytesPerSecond * 8 / 1024) kbit/s)\nAvg latency: \(Int(results.averageDelay * 1000.0)) ms")
+                        }))
+                    } else {
+                        runReflectorBenchmarkDisposable.set(nil)
+                    }
+                }))
+            }
+        })
         
         return true
     }
@@ -1754,7 +1795,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             if resetOnce {
                 resetOnce = false
                 if count == 0 {
-                    UIApplication.shared.applicationIconBadgeNumber = 1
+                    //UIApplication.shared.applicationIconBadgeNumber = 1
                 }
             }
             UIApplication.shared.applicationIconBadgeNumber = Int(count)
@@ -1809,14 +1850,19 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         self.isActiveValue = false
         self.isActivePromise.set(false)
         
-        var taskId: UIBackgroundTaskIdentifier?
-        taskId = application.beginBackgroundTask(withName: "lock", expirationHandler: {
-            if let taskId = taskId {
+        final class TaskIdHolder {
+            var taskId: UIBackgroundTaskIdentifier?
+        }
+        
+        let taskIdHolder = TaskIdHolder()
+        
+        taskIdHolder.taskId = application.beginBackgroundTask(withName: "lock", expirationHandler: {
+            if let taskId = taskIdHolder.taskId {
                 UIApplication.shared.endBackgroundTask(taskId)
             }
         })
         DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 5.0, execute: {
-            if let taskId = taskId {
+            if let taskId = taskIdHolder.taskId {
                 UIApplication.shared.endBackgroundTask(taskId)
             }
         })
@@ -2366,7 +2412,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                         if let primary = primary {
                             for context in contexts {
                                 if let context = context, context.account.id == primary {
-                                    self.openChatWhenReady(accountId: nil, peerId: peerId, threadId: nil, storyId: nil)
+                                    self.openChatWhenReady(accountId: nil, peerId: peerId, threadId: nil, storyId: nil, openAppIfAny: true)
                                     return
                                 }
                             }
@@ -2374,7 +2420,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                         
                         for context in contexts {
                             if let context = context {
-                                self.openChatWhenReady(accountId: context.account.id, peerId: peerId, threadId: nil, storyId: nil)
+                                self.openChatWhenReady(accountId: context.account.id, peerId: peerId, threadId: nil, storyId: nil, openAppIfAny: true)
                                 return
                             }
                         }
@@ -2460,7 +2506,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }))
     }
     
-    private func openChatWhenReady(accountId: AccountRecordId?, peerId: PeerId, threadId: Int64?, messageId: MessageId? = nil, activateInput: Bool = false, storyId: StoryId?) {
+    private func openChatWhenReady(accountId: AccountRecordId?, peerId: PeerId, threadId: Int64?, messageId: MessageId? = nil, activateInput: Bool = false, storyId: StoryId?, openAppIfAny: Bool = false) {
         let signal = self.sharedContextPromise.get()
         |> take(1)
         |> deliverOnMainQueue
@@ -2479,7 +2525,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         self.openChatWhenReadyDisposable.set((signal
         |> deliverOnMainQueue).start(next: { context in
-            context.openChatWithPeerId(peerId: peerId, threadId: threadId, messageId: messageId, activateInput: activateInput, storyId: storyId)
+            context.openChatWithPeerId(peerId: peerId, threadId: threadId, messageId: messageId, activateInput: activateInput, storyId: storyId, openAppIfAny: openAppIfAny)
         }))
     }
     

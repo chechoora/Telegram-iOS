@@ -269,6 +269,17 @@ public extension Peer {
         }
     }
     
+    var verificationIconFileId: Int64? {
+        switch self {
+        case let user as TelegramUser:
+            return user.verificationIconFileId
+        case let channel as TelegramChannel:
+            return channel.verificationIconFileId
+        default:
+            return nil
+        }
+    }
+    
     var profileColor: PeerNameColor? {
         switch self {
         case let user as TelegramUser:
@@ -424,12 +435,24 @@ public func isServicePeer(_ peer: Peer) -> Bool {
         if peer.id.isReplies {
             return true
         }
+        if peer.id.isVerificationCodes {
+            return true
+        }
         return (peer.id.namespace == Namespaces.Peer.CloudUser && (peer.id.id._internalGetInt64Value() == 777000 || peer.id.id._internalGetInt64Value() == 333000))
     }
     return false
 }
 
 public extension PeerId {
+    var isTelegramNotifications: Bool {
+        if self.namespace == Namespaces.Peer.CloudUser {
+            if self.id._internalGetInt64Value() == 777000 {
+                return true
+            }
+        }
+        return false
+    }
+    
     var isReplies: Bool {
         if self.namespace == Namespaces.Peer.CloudUser {
             if self.id._internalGetInt64Value() == 708513 || self.id._internalGetInt64Value() == 1271266957 {
@@ -439,10 +462,25 @@ public extension PeerId {
         return false
     }
     
+    var isVerificationCodes: Bool {
+        if self.namespace == Namespaces.Peer.CloudUser {
+            if self.id._internalGetInt64Value() == 489000 {
+                return true
+            }
+        }
+        return false
+    }
+    
+    var isRepliesOrVerificationCodes: Bool {
+        return self.isReplies || self.isVerificationCodes
+    }
+    
     func isRepliesOrSavedMessages(accountPeerId: PeerId) -> Bool {
         if accountPeerId == self {
             return true
         } else if self.isReplies {
+            return true
+        } else if self.isVerificationCodes {
             return true
         } else {
             return false

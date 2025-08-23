@@ -377,7 +377,7 @@ public class InstantPageGalleryController: ViewController, StandalonePresentable
         }, controller: { [weak self] in
             return self
         })
-        self.displayNode = GalleryControllerNode(controllerInteraction: controllerInteraction)
+        self.displayNode = GalleryControllerNode(context: self.context,controllerInteraction: controllerInteraction)
         self.displayNodeDidLoad()
         
         self.galleryNode.statusBar = self.statusBar
@@ -398,7 +398,7 @@ public class InstantPageGalleryController: ViewController, StandalonePresentable
             self?.presentingViewController?.dismiss(animated: false, completion: nil)
         }
         
-        self.galleryNode.completeCustomDismiss = { [weak self] in
+        self.galleryNode.completeCustomDismiss = { [weak self] _ in
             self?._hiddenMedia.set(.single(nil))
             self?.presentingViewController?.dismiss(animated: false, completion: nil)
         }

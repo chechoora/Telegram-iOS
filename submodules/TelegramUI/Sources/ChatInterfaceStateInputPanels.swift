@@ -9,16 +9,6 @@ import ChatBotStartInputPanelNode
 import ChatChannelSubscriberInputPanelNode
 import ChatMessageSelectionInputPanelNode
 
-func canBypassRestrictions(chatPresentationInterfaceState: ChatPresentationInterfaceState) -> Bool {
-    guard let boostsToUnrestrict = chatPresentationInterfaceState.boostsToUnrestrict else {
-        return false
-    }
-    if let appliedBoosts = chatPresentationInterfaceState.appliedBoosts, appliedBoosts >= boostsToUnrestrict {
-        return true
-    }
-    return false
-}
-
 func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState: ChatPresentationInterfaceState, context: AccountContext, currentPanel: ChatInputPanelNode?, currentSecondaryPanel: ChatInputPanelNode?, textInputPanelNode: ChatTextInputPanelNode?, interfaceInteraction: ChatPanelInterfaceInteraction?) -> (primary: ChatInputPanelNode?, secondary: ChatInputPanelNode?) {
     if let renderedPeer = chatPresentationInterfaceState.renderedPeer, renderedPeer.peer?.restrictionText(platform: "ios", contentSettings: context.currentContentSettings.with { $0 }) != nil {
         return (nil, nil)
@@ -137,7 +127,7 @@ func inputPanelForChatPresentationIntefaceState(_ chatPresentationInterfaceState
     var displayInputTextPanel = false
     
     if let peer = chatPresentationInterfaceState.renderedPeer?.peer {
-        if peer.id.isReplies {
+        if peer.id.isRepliesOrVerificationCodes {
             if let currentPanel = (currentPanel as? ChatChannelSubscriberInputPanelNode) ?? (currentSecondaryPanel as? ChatChannelSubscriberInputPanelNode) {
                 return (currentPanel, nil)
             } else {

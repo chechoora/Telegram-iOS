@@ -720,7 +720,7 @@ final class WatchAudioHandler: WatchRequestHandler {
                         replyMessageId = MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: replyToMid)
                     }
                     
-                    let _ = enqueueMessages(account: context.account, peerId: peerId, messages: [.message(text: "", attributes: [], inlineStickers: [:], mediaReference: .standalone(media: TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: randomId), partialReference: nil, resource: resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "audio/ogg", size: Int64(data.count), attributes: [.Audio(isVoice: true, duration: Int(duration), title: nil, performer: nil, waveform: nil)])), threadId: nil, replyToMessageId: replyMessageId.flatMap { EngineMessageReplySubject(messageId: $0, quote: nil) }, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])]).start()
+                    let _ = enqueueMessages(account: context.account, peerId: peerId, messages: [.message(text: "", attributes: [], inlineStickers: [:], mediaReference: .standalone(media: TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: randomId), partialReference: nil, resource: resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "audio/ogg", size: Int64(data.count), attributes: [.Audio(isVoice: true, duration: Int(duration), title: nil, performer: nil, waveform: nil)], alternativeRepresentations: [])), threadId: nil, replyToMessageId: replyMessageId.flatMap { EngineMessageReplySubject(messageId: $0, quote: nil) }, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])]).start()
                 }
             })
         } else {
@@ -741,7 +741,7 @@ final class WatchLocationHandler: WatchRequestHandler {
                 |> take(1)
                 |> mapToSignal({ context -> Signal<[ChatContextResultMessage], NoError> in
                     if let context = context {
-                        return context.engine.peers.resolvePeerByName(name: "foursquare")
+                        return context.engine.peers.resolvePeerByName(name: "foursquare", referrer: nil)
                         |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
                             guard case let .result(result) = result else {
                                 return .complete()

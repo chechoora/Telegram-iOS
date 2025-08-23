@@ -1034,7 +1034,8 @@ private final class SheetContent: CombinedComponent {
                             horizontalAlignment: .center,
                             maximumNumberOfLines: 0,
                             lineSpacing: 0.1,
-                            highlightColor: linkColor.withAlphaComponent(0.2),
+                            highlightColor: linkColor.withAlphaComponent(0.1),
+                            highlightInset: UIEdgeInsets(top: 0.0, left: 0.0, bottom: 0.0, right: -8.0),
                             highlightAction: { _ in
                                 return nil
                             },
@@ -1927,7 +1928,7 @@ public class PremiumBoostLevelsScreen: ViewController {
                             UIPasteboard.general.string = link
                             
                             if let previousController = controller?.navigationController?.viewControllers.reversed().first(where: { $0 !== controller }) as? ViewController {
-                                previousController.present(UndoOverlayController(presentationData: self.presentationData, content: .linkCopied(text: self.presentationData.strings.ChannelBoost_BoostLinkCopied), elevatedLayout: true, position: .top, animateInAsReplacement: false, action: { _ in return false }), in: .current)
+                                previousController.present(UndoOverlayController(presentationData: self.presentationData, content: .linkCopied(title: nil, text: self.presentationData.strings.ChannelBoost_BoostLinkCopied), elevatedLayout: true, position: .top, animateInAsReplacement: false, action: { _ in return false }), in: .current)
                             }
                         },
                         dismiss: { [weak controller] in

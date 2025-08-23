@@ -149,6 +149,11 @@ swift_library(
         "//submodules/TelegramUI/Components/PeerManagement/OldChannelsController",
         "//submodules/TelegramUI/Components/TextNodeWithEntities",
         "//submodules/UrlHandling",
+        "//submodules/TelegramUI/Components/EmojiTextAttachmentView",
+        "//submodules/TelegramUI/Components/MediaEditor",
+        "//submodules/TelegramUI/Components/MediaEditorScreen",
+        "//submodules/TelegramUI/Components/CameraScreen",
+        "//submodules/TelegramUI/Components/PeerInfo/VerifyAlertController",
     ],
     visibility = [
         "//visibility:public",

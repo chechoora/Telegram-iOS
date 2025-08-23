@@ -130,7 +130,7 @@ final class GreetingMessageListItemComponent: Component {
                     animationRenderer: component.context.animationRenderer,
                     activateSearch: {
                     },
-                    peerSelected: { _, _, _, _ in
+                    peerSelected: { _, _, _, _, _ in
                     },
                     disabledPeerSelected: { _, _, _ in
                     },
@@ -186,7 +186,7 @@ final class GreetingMessageListItemComponent: Component {
                     },
                     openPremiumIntro: {
                     },
-                    openPremiumGift: { _ in
+                    openPremiumGift: { _, _ in
                     },
                     openPremiumManagement: {
                     },
@@ -207,6 +207,10 @@ final class GreetingMessageListItemComponent: Component {
                     dismissNotice: { _ in
                     },
                     editPeer: { _ in
+                    },
+                    openWebApp: { _ in
+                    },
+                    openPhotoSetup: {
                     }
                 )
                 self.chatListNodeInteraction = chatListNodeInteraction

@@ -221,9 +221,9 @@ func chatContextMenuItems(context: AccountContext, peerId: PeerId, promoInfo: Ch
                                         }
                                         return filters
                                     }
-                                             |> deliverOnMainQueue).startStandalone(completed: {
+                                    |> deliverOnMainQueue).startStandalone(completed: {
                                         c?.dismiss(completion: {
-                                            chatListController?.present(UndoOverlayController(presentationData: presentationData, content: .chatRemovedFromFolder(chatTitle: peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder), folderTitle: title), elevatedLayout: false, animateInAsReplacement: true, action: { _ in
+                                            chatListController?.present(UndoOverlayController(presentationData: presentationData, content: .chatRemovedFromFolder(context: context, chatTitle: peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder), folderTitle: title.rawAttributedString), elevatedLayout: false, animateInAsReplacement: true, action: { _ in
                                                 return false
                                             }), in: .current)
                                         })
@@ -253,6 +253,13 @@ func chatContextMenuItems(context: AccountContext, peerId: PeerId, promoInfo: Ch
                                 items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_AddToFolder, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Folder"), color: theme.contextMenu.primaryColor) }, action: { c, _ in
                                     var updatedItems: [ContextMenuItem] = []
                                     
+                                    updatedItems.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_Back, icon: { theme in
+                                        return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Back"), color: theme.contextMenu.primaryColor)
+                                    }, iconPosition: .left, action: { c, _ in
+                                        c?.setItems(chatContextMenuItems(context: context, peerId: peerId, promoInfo: promoInfo, source: source, chatListController: chatListController, joined: joined) |> map { ContextController.Items(content: .list($0)) }, minHeight: nil, animated: true)
+                                    })))
+                                    updatedItems.append(.separator)
+                                    
                                     for filter in filters {
                                         if case let .filter(_, title, _, data) = filter {
                                             let predicate = chatListFilterPredicate(filter: data, accountPeerId: context.account.peerId)
@@ -266,7 +273,7 @@ func chatContextMenuItems(context: AccountContext, peerId: PeerId, promoInfo: Ch
                                             }
                                             
                                             let filterType = chatListFilterType(data)
-                                            updatedItems.append(.action(ContextMenuActionItem(text: title, icon: { theme in
+                                            updatedItems.append(.action(ContextMenuActionItem(text: title.text, entities: title.entities, enableEntityAnimations: title.enableAnimations, icon: { theme in
                                                 let imageName: String
                                                 switch filterType {
                                                 case .generic:
@@ -330,24 +337,17 @@ func chatContextMenuItems(context: AccountContext, peerId: PeerId, promoInfo: Ch
                                                         }
                                                         return filters
                                                     }).startStandalone()
-                                                    
-                                                    chatListController?.present(UndoOverlayController(presentationData: presentationData, content: .chatAddedToFolder(chatTitle: peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder), folderTitle: title), elevatedLayout: false, animateInAsReplacement: true, action: { _ in
+                                                    chatListController?.present(UndoOverlayController( presentationData: presentationData, content: .chatAddedToFolder(context: context, chatTitle: peer.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder), folderTitle: title.rawAttributedString), elevatedLayout: false, animateInAsReplacement: true, action: { _ in
                                                         return false
                                                     }), in: .current)
                                                 })
                                             })))
                                         }
                                     }
-                                    
-                                    updatedItems.append(.separator)
-                                    updatedItems.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_Back, icon: { theme in
-                                        return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Back"), color: theme.contextMenu.primaryColor)
-                                    }, iconPosition: .left, action: { c, _ in
-                                        c?.setItems(chatContextMenuItems(context: context, peerId: peerId, promoInfo: promoInfo, source: source, chatListController: chatListController, joined: joined) |> map { ContextController.Items(content: .list($0)) }, minHeight: nil, animated: true)
-                                    })))
-                                    
-                                    c?.setItems(.single(ContextController.Items(content: .list(updatedItems))), minHeight: nil, animated: true)
+                                                                        
+                                    c?.setItems(.single(ContextController.Items(content: .list(updatedItems), context: context)), minHeight: nil, animated: true)
                                 })))
+                                items.append(.separator)
                             }
                         }
                         

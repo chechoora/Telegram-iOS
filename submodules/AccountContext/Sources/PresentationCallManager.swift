@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import TelegramCore
 import SwiftSignalKit
 import TelegramAudio
+import Display
 
 public enum RequestCallResult {
     case requested
@@ -56,14 +57,14 @@ public struct PresentationCallState: Equatable {
     public enum VideoState: Equatable {
         case notAvailable
         case inactive
-        case active(isScreencast: Bool)
-        case paused(isScreencast: Bool)
+        case active(isScreencast: Bool, endpointId: String)
+        case paused(isScreencast: Bool, endpointId: String)
     }
     
     public enum RemoteVideoState: Equatable {
         case inactive
-        case active
-        case paused
+        case active(endpointId: String)
+        case paused(endpointId: String)
     }
     
     public enum RemoteAudioState: Equatable {
@@ -163,7 +164,8 @@ public protocol PresentationCall: AnyObject {
     func setCurrentAudioOutput(_ output: AudioSessionOutput)
     func debugInfo() -> Signal<(String, String), NoError>
     
-    func makeIncomingVideoView(completion: @escaping (PresentationCallVideoView?) -> Void)
+    func createConferenceIfPossible()
+    
     func makeOutgoingVideoView(completion: @escaping (PresentationCallVideoView?) -> Void)
 }
 
@@ -394,7 +396,7 @@ public protocol PresentationGroupCall: AnyObject {
     var account: Account { get }
     var accountContext: AccountContext { get }
     var internalId: CallSessionInternalId { get }
-    var peerId: EnginePeer.Id { get }
+    var peerId: EnginePeer.Id? { get }
     
     var hasVideo: Bool { get }
     var hasScreencast: Bool { get }
@@ -413,6 +415,7 @@ public protocol PresentationGroupCall: AnyObject {
     var members: Signal<PresentationGroupCallMembers?, NoError> { get }
     var audioLevels: Signal<[(EnginePeer.Id, UInt32, Float, Bool)], NoError> { get }
     var myAudioLevel: Signal<Float, NoError> { get }
+    var myAudioLevelAndSpeaking: Signal<(Float, Bool), NoError> { get }
     var isMuted: Signal<Bool, NoError> { get }
     var isNoiseSuppressionEnabled: Signal<Bool, NoError> { get }
     
@@ -457,7 +460,6 @@ public protocol PresentationGroupCall: AnyObject {
     
     var inviteLinks: Signal<GroupCallInviteLinks?, NoError> { get }
     
-    func makeIncomingVideoView(endpointId: String, requestClone: Bool, completion: @escaping (PresentationCallVideoView?, PresentationCallVideoView?) -> Void)
     func makeOutgoingVideoView(requestClone: Bool, completion: @escaping (PresentationCallVideoView?, PresentationCallVideoView?) -> Void)
     
     func loadMoreMembers(token: String)
@@ -471,5 +473,5 @@ public protocol PresentationCallManager: AnyObject {
     
     func requestCall(context: AccountContext, peerId: EnginePeer.Id, isVideo: Bool, endCurrentIfAny: Bool) -> RequestCallResult
     func joinGroupCall(context: AccountContext, peerId: EnginePeer.Id, invite: String?, requestJoinAsPeerId: ((@escaping (EnginePeer.Id?) -> Void) -> Void)?, initialCall: EngineGroupCallDescription, endCurrentIfAny: Bool) -> JoinGroupCallManagerResult
-    func scheduleGroupCall(context: AccountContext, peerId: EnginePeer.Id, endCurrentIfAny: Bool) -> RequestScheduleGroupCallResult
+    func scheduleGroupCall(context: AccountContext, peerId: EnginePeer.Id, endCurrentIfAny: Bool, parentController: ViewController) -> RequestScheduleGroupCallResult
 }

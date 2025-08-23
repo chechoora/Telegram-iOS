@@ -462,6 +462,10 @@ public extension EnginePeer {
     var addressName: String? {
         return self._asPeer().addressName
     }
+    
+    var usernames: [TelegramPeerUsername] {
+        return self._asPeer().usernames
+    }
 
     var indexName: EnginePeer.IndexName {
         return EnginePeer.IndexName(self._asPeer().indexName)
@@ -520,6 +524,9 @@ public extension EnginePeer {
             if peer.id.isReplies {
                 return true
             }
+            if peer.id.isVerificationCodes {
+                return true
+            }
             return (peer.id.namespace == Namespaces.Peer.CloudUser && (peer.id.id._internalGetInt64Value() == 777000 || peer.id.id._internalGetInt64Value() == 333000))
         }
         return false
@@ -527,6 +534,10 @@ public extension EnginePeer {
     
     var nameColor: PeerNameColor? {
         return self._asPeer().nameColor
+    }
+    
+    var verificationIconFileId: Int64? {
+        return self._asPeer().verificationIconFileId
     }
     
     var profileColor: PeerNameColor? {

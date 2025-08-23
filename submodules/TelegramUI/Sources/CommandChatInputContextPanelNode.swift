@@ -98,7 +98,7 @@ private struct CommandChatInputContextPanelEntry: Comparable, Identifiable {
                     animationRenderer: context.animationRenderer,
                     activateSearch: {
                     },
-                    peerSelected: { _, _, _, _ in
+                    peerSelected: { _, _, _, _, _ in
                         commandSelected(.shortcut(shortcut), true)
                     },
                     disabledPeerSelected: { _, _, _ in
@@ -156,7 +156,7 @@ private struct CommandChatInputContextPanelEntry: Comparable, Identifiable {
                     },
                     openPremiumIntro: {
                     },
-                    openPremiumGift: { _ in
+                    openPremiumGift: { _, _ in
                     },
                     openPremiumManagement: {
                     },
@@ -177,6 +177,10 @@ private struct CommandChatInputContextPanelEntry: Comparable, Identifiable {
                     dismissNotice: { _ in
                     },
                     editPeer: { _ in
+                    },
+                    openWebApp: { _ in
+                    },
+                    openPhotoSetup: {
                     }
                 )
                 

@@ -254,7 +254,7 @@ public final class SecretMediaPreviewController: ViewController {
         }, controller: { [weak self] in
             return self
         })
-        self.displayNode = SecretMediaPreviewControllerNode(controllerInteraction: controllerInteraction)
+        self.displayNode = SecretMediaPreviewControllerNode(context: self.context, controllerInteraction: controllerInteraction)
         self.displayNodeDidLoad()
         
         self.controllerNode.statusPressed = { [weak self] _ in
@@ -300,7 +300,7 @@ public final class SecretMediaPreviewController: ViewController {
             }
         }
         
-        self.controllerNode.completeCustomDismiss = { [weak self] in
+        self.controllerNode.completeCustomDismiss = { [weak self] _ in
             self?._hiddenMedia.set(.single(nil))
             self?.presentingViewController?.dismiss(animated: false, completion: nil)
         }

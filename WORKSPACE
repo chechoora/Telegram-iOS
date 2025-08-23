@@ -2,9 +2,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 
 http_archive(
     name = "bazel_features",
-    sha256 = "0f23d75c7623d6dba1fd30513a94860447de87c8824570521fcc966eda3151c2",
-    strip_prefix = "bazel_features-1.4.1",
-    url = "https://github.com/bazel-contrib/bazel_features/releases/download/v1.4.1/bazel_features-v1.4.1.tar.gz",
+    sha256 = "bdc12fcbe6076180d835c9dd5b3685d509966191760a0eb10b276025fcb76158",
+    strip_prefix = "bazel_features-1.17.0",
+    url = "https://github.com/bazel-contrib/bazel_features/releases/download/v1.17.0/bazel_features-v1.17.0.tar.gz",
 )
 
 local_repository(
@@ -31,6 +31,18 @@ http_file(
     name = "cmake_tar_gz",
     urls = ["https://github.com/Kitware/CMake/releases/download/v3.23.1/cmake-3.23.1-macos-universal.tar.gz"],
     sha256 = "f794ed92ccb4e9b6619a77328f313497d7decf8fb7e047ba35a348b838e0e1e2",
+)
+
+http_file(
+    name = "meson_tar_gz",
+    urls = ["https://github.com/mesonbuild/meson/releases/download/1.6.0/meson-1.6.0.tar.gz"],
+    sha256 = "999b65f21c03541cf11365489c1fad22e2418bb0c3d50ca61139f2eec09d5496",
+)
+
+http_file(
+    name = "ninja-mac_zip",
+    urls = ["https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-mac.zip"],
+    sha256 = "89a287444b5b3e98f88a945afa50ce937b8ffd1dcc59c555ad9b1baf855298c9",
 )
 
 http_archive(

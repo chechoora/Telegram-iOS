@@ -16,24 +16,33 @@ public protocol ContactSelectionController: ViewController {
 
 public enum ContactSelectionControllerMode {
     case generic
-    case starsGifting(birthdays: [EnginePeer.Id: TelegramBirthday]?, hasActions: Bool)
+    case starsGifting(birthdays: [EnginePeer.Id: TelegramBirthday]?, hasActions: Bool, showSelf: Bool)
 }
 
 public struct ContactListAdditionalOption: Equatable {
+    public enum Style: Equatable {
+        case accent
+        case generic
+    }
+    
     public let title: String
+    public let subtitle: String?
     public let icon: ContactListActionItemIcon
+    public let style: Style
     public let action: () -> Void
     public let clearHighlightAutomatically: Bool
     
-    public init(title: String, icon: ContactListActionItemIcon, action: @escaping () -> Void, clearHighlightAutomatically: Bool = false) {
+    public init(title: String, subtitle: String? = nil, icon: ContactListActionItemIcon, style: Style = .accent, action: @escaping () -> Void, clearHighlightAutomatically: Bool = false) {
         self.title = title
+        self.subtitle = subtitle
         self.icon = icon
+        self.style = style
         self.action = action
         self.clearHighlightAutomatically = clearHighlightAutomatically
     }
     
     public static func ==(lhs: ContactListAdditionalOption, rhs: ContactListAdditionalOption) -> Bool {
-        return lhs.title == rhs.title && lhs.icon == rhs.icon
+        return lhs.title == rhs.title && lhs.subtitle == rhs.subtitle && lhs.icon == rhs.icon && lhs.style == rhs.style
     }
 }
 
@@ -101,8 +110,10 @@ public final class ContactSelectionControllerParams {
     public let multipleSelection: Bool
     public let requirePhoneNumbers: Bool
     public let confirmation: (ContactListPeer) -> Signal<Bool, NoError>
+    public let openProfile: ((EnginePeer) -> Void)?
+    public let sendMessage: ((EnginePeer) -> Void)?
     
-    public init(context: AccountContext, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil, mode: ContactSelectionControllerMode = .generic, autoDismiss: Bool = true, title: @escaping (PresentationStrings) -> String, options: Signal<[ContactListAdditionalOption], NoError> = .single([]), displayDeviceContacts: Bool = false, displayCallIcons: Bool = false, multipleSelection: Bool = false, requirePhoneNumbers: Bool = false, confirmation: @escaping (ContactListPeer) -> Signal<Bool, NoError> = { _ in .single(true) }) {
+    public init(context: AccountContext, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>)? = nil, mode: ContactSelectionControllerMode = .generic, autoDismiss: Bool = true, title: @escaping (PresentationStrings) -> String, options: Signal<[ContactListAdditionalOption], NoError> = .single([]), displayDeviceContacts: Bool = false, displayCallIcons: Bool = false, multipleSelection: Bool = false, requirePhoneNumbers: Bool = false, confirmation: @escaping (ContactListPeer) -> Signal<Bool, NoError> = { _ in .single(true) }, openProfile: ((EnginePeer) -> Void)? = nil, sendMessage: ((EnginePeer) -> Void)? = nil) {
         self.context = context
         self.updatedPresentationData = updatedPresentationData
         self.mode = mode
@@ -114,5 +125,7 @@ public final class ContactSelectionControllerParams {
         self.multipleSelection = multipleSelection
         self.requirePhoneNumbers = requirePhoneNumbers
         self.confirmation = confirmation
+        self.openProfile = openProfile
+        self.sendMessage = sendMessage
     }
 }

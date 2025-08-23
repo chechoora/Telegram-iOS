@@ -147,7 +147,9 @@ public final class BrowserBookmarksScreen: ViewController {
             }, openLargeEmojiInfo: { _, _, _ in
             }, openJoinLink: { _ in
             }, openWebView: { _, _, _, _ in
-            }, activateAdAction: { _, _ in
+            }, activateAdAction: { _, _, _, _ in
+            }, adContextAction: { _, _, _ in
+            }, removeAd: { _ in
             }, openRequestedPeerSelection: { _, _, _, _ in
             }, saveMediaToFiles: { _ in
             }, openNoAdsDemo: {
@@ -160,6 +162,7 @@ public final class BrowserBookmarksScreen: ViewController {
             }, openAgeRestrictedMessageMedia: { _, _ in
             }, playMessageEffect: { _ in
             }, editMessageFactCheck: { _ in
+            }, sendGift: { _ in
             }, requestMessageUpdate: { _, _ in
             }, cancelInteractiveKeyboardGestures: {
             }, dismissTextInput: {
@@ -167,6 +170,7 @@ public final class BrowserBookmarksScreen: ViewController {
             }, navigateToStory: { _, _ in
             }, attemptedNavigationToPrivateQuote: { _ in
             }, forceUpdateWarpContents: {
+            }, playShakeAnimation: {
             }, automaticMediaDownloadSettings: MediaAutoDownloadSettings.defaultSettings, pollActionState: ChatInterfacePollActionState(), stickerSettings: ChatInterfaceStickerSettings(), presentationContext: ChatPresentationContext(context: context, backgroundNode: nil))
             
             
@@ -242,7 +246,7 @@ public final class BrowserBookmarksScreen: ViewController {
                         
                         UIPasteboard.general.string = url
                         if let self  {
-                            self.controller?.present(UndoOverlayController(presentationData: presentationData, content: .linkCopied(text: presentationData.strings.Conversation_LinkCopied), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
+                            self.controller?.present(UndoOverlayController(presentationData: presentationData, content: .linkCopied(title: nil, text: presentationData.strings.Conversation_LinkCopied), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return false }), in: .window(.root))
                         }
                     })))
                 }

@@ -101,6 +101,8 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
         }
     }
     
+    private var forceStopAnimations: Bool = false
+    
     required public init(rotated: Bool) {
         self.contextSourceNode = ContextExtractedContentContainingNode()
         self.containerNode = ContextControllerSourceNode()
@@ -861,7 +863,8 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                     associatedData: item.associatedData,
                     accountPeer: item.associatedData.accountPeer,
                     isIncoming: item.message.effectivelyIncoming(item.context.account.peerId),
-                    constrainedWidth: maxReactionsWidth
+                    constrainedWidth: maxReactionsWidth,
+                    centerAligned: false
                 ))
                 maxContentWidth = max(maxContentWidth, minWidth)
                 reactionButtonsFinalize = buttonsLayout
@@ -2160,6 +2163,9 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
         if !item.controllerInteraction.canReadHistory {
             isPlaying = false
         }
+        if self.forceStopAnimations {
+            isPlaying = false
+        }
         
         if !isPlaying {
             self.removeEffectAnimations()
@@ -2189,6 +2195,11 @@ public class ChatMessageStickerItemNode: ChatMessageItemView {
                 self.playMessageEffect(force: false)
             }
         }
+    }
+    
+    override public func updateStickerSettings(forceStopAnimations: Bool) {
+        self.forceStopAnimations = forceStopAnimations
+        self.updateVisibility()
     }
     
     override public func messageEffectTargetView() -> UIView? {

@@ -7,6 +7,7 @@ public enum EngineOutgoingMessageContent {
     case text(String, [MessageTextEntity])
     case file(FileMediaReference)
     case contextResult(ChatContextResultCollection, ChatContextResult)
+    case preparedInlineMessage(PreparedInlineMessage)
 }
 
 public final class StoryPreloadInfo {
@@ -249,7 +250,9 @@ public extension TelegramEngine {
             scheduleTime: Int32? = nil
         ) -> Signal<[MessageId?], NoError> {
             var message: EnqueueMessage?
-            if case let .contextResult(results, result) = content {
+            if case let .preparedInlineMessage(preparedInlineMessage) = content {
+                message = self.outgoingMessageWithChatContextResult(to: peerId, threadId: nil, botId: preparedInlineMessage.botId, result: preparedInlineMessage.result, replyToMessageId: replyToMessageId, replyToStoryId: storyId, hideVia: true, silentPosting: silentPosting, scheduleTime: scheduleTime, correlationId: nil)
+            } else if case let .contextResult(results, result) = content {
                 message = self.outgoingMessageWithChatContextResult(to: peerId, threadId: nil, botId: results.botId, result: result, replyToMessageId: replyToMessageId, replyToStoryId: storyId, hideVia: true, silentPosting: silentPosting, scheduleTime: scheduleTime, correlationId: nil)
             } else {
                 var attributes: [MessageAttribute] = []
@@ -403,6 +406,14 @@ public extension TelegramEngine {
         public func messageReadStats(id: MessageId) -> Signal<MessageReadStats?, NoError> {
             return _internal_messageReadStats(account: self.account, id: id)
         }
+        
+        public func getPreparedInlineMessage(botId: EnginePeer.Id, id: String) -> Signal<PreparedInlineMessage?, NoError> {
+            return _internal_getPreparedInlineMessage(account: self.account, botId: botId, id: id)
+        }
+        
+        public func checkBotDownload(botId: EnginePeer.Id, fileName: String, url: String) -> Signal<Bool, NoError> {
+            return _internal_checkBotDownload(account: self.account, botId: botId, fileName: fileName, url: url)
+        }
 
         public func requestCancelLiveLocation(ids: [MessageId]) -> Signal<Never, NoError> {
             return self.account.postbox.transaction { transaction -> Void in
@@ -536,8 +547,8 @@ public extension TelegramEngine {
             return _internal_translate_texts(network: self.account.network, texts: texts, toLang: toLang)
         }
         
-        public func translateMessages(messageIds: [EngineMessage.Id], toLang: String) -> Signal<Never, TranslationError> {
-            return _internal_translateMessages(account: self.account, messageIds: messageIds, toLang: toLang)
+        public func translateMessages(messageIds: [EngineMessage.Id], fromLang: String?, toLang: String, enableLocalIfPossible: Bool) -> Signal<Never, TranslationError> {
+            return _internal_translateMessages(account: self.account, messageIds: messageIds, fromLang: fromLang, toLang: toLang, enableLocalIfPossible: enableLocalIfPossible)
         }
         
         public func togglePeerMessagesTranslationHidden(peerId: EnginePeer.Id, hidden: Bool) -> Signal<Never, NoError> {
@@ -590,12 +601,12 @@ public extension TelegramEngine {
             return _internal_requestSimpleWebView(postbox: self.account.postbox, network: self.account.network, botId: botId, url: url, source: source, themeParams: themeParams)
         }
         
-        public func requestMainWebView(botId: PeerId, source: RequestSimpleWebViewSource, themeParams: [String: Any]?) -> Signal<RequestWebViewResult, RequestWebViewError> {
-            return _internal_requestMainWebView(postbox: self.account.postbox, network: self.account.network, botId: botId, source: source, themeParams: themeParams)
+        public func requestMainWebView(peerId: PeerId, botId: PeerId, source: RequestSimpleWebViewSource, themeParams: [String: Any]?) -> Signal<RequestWebViewResult, RequestWebViewError> {
+            return _internal_requestMainWebView(postbox: self.account.postbox, network: self.account.network, peerId: peerId, botId: botId, source: source, themeParams: themeParams)
         }
         
-        public func requestAppWebView(peerId: PeerId, appReference: BotAppReference, payload: String?, themeParams: [String: Any]?, compact: Bool, allowWrite: Bool) -> Signal<RequestWebViewResult, RequestWebViewError> {
-            return _internal_requestAppWebView(postbox: self.account.postbox, network: self.account.network, stateManager: self.account.stateManager, peerId: peerId, appReference: appReference, payload: payload, themeParams: themeParams, compact: compact, allowWrite: allowWrite)
+        public func requestAppWebView(peerId: PeerId, appReference: BotAppReference, payload: String?, themeParams: [String: Any]?, compact: Bool, fullscreen: Bool, allowWrite: Bool) -> Signal<RequestWebViewResult, RequestWebViewError> {
+            return _internal_requestAppWebView(postbox: self.account.postbox, network: self.account.network, stateManager: self.account.stateManager, peerId: peerId, appReference: appReference, payload: payload, themeParams: themeParams, compact: compact, fullscreen: fullscreen, allowWrite: allowWrite)
         }
                 
         public func sendWebViewData(botId: PeerId, buttonText: String, data: String) -> Signal<Never, SendWebViewDataError> {
@@ -1235,8 +1246,8 @@ public extension TelegramEngine {
                         }
                         
                         var selectedMedia: EngineMedia
-                        if let alternativeMedia = itemAndPeer.item.alternativeMedia.flatMap(EngineMedia.init), (!preferHighQuality && !itemAndPeer.item.isMy) {
-                            selectedMedia = alternativeMedia
+                        if let alternativeMediaValue = itemAndPeer.item.alternativeMediaList.first.flatMap(EngineMedia.init), (!preferHighQuality && !itemAndPeer.item.isMy) {
+                            selectedMedia = alternativeMediaValue
                         } else {
                             selectedMedia = EngineMedia(media)
                         }
@@ -1277,7 +1288,7 @@ public extension TelegramEngine {
                                     timestamp: item.timestamp,
                                     expirationTimestamp: item.expirationTimestamp,
                                     media: item.media,
-                                    alternativeMedia: item.alternativeMedia,
+                                    alternativeMediaList: item.alternativeMediaList,
                                     mediaAreas: item.mediaAreas,
                                     text: item.text,
                                     entities: item.entities,
@@ -1401,6 +1412,10 @@ public extension TelegramEngine {
             return self.account.stateManager.synchronouslyIsMessageDeletedInteractively(ids: ids)
         }
         
+        public func synchronouslyIsMessageDeletedRemotely(ids: [EngineMessage.Id]) -> [EngineMessage.Id] {
+            return self.account.stateManager.synchronouslyIsMessageDeletedRemotely(ids: ids)
+        }
+        
         public func synchronouslyLookupCorrelationId(correlationId: Int64) -> EngineMessage.Id? {
             return self.account.pendingMessageManager.synchronouslyLookupCorrelationId(correlationId: correlationId)
         }
@@ -1463,11 +1478,16 @@ public extension TelegramEngine {
             return _internal_reportAdMessage(account: self.account, peerId: peerId, opaqueId: opaqueId, option: option)
         }
         
+        public func reportContent(subject: ReportContentSubject, option: Data?, message: String?) -> Signal<ReportContentResult, ReportContentError> {
+            return _internal_reportContent(account: self.account, subject: subject, option: option, message: message)
+        }
+        
         public func updateExtendedMedia(messageIds: [EngineMessage.Id]) -> Signal<Never, NoError> {
             return _internal_updateExtendedMedia(account: self.account, messageIds: messageIds)
         }
-        public func markAdAction(peerId: EnginePeer.Id, opaqueId: Data) {
-            _internal_markAdAction(account: self.account, peerId: peerId, opaqueId: opaqueId)
+        
+        public func markAdAction(peerId: EnginePeer.Id, opaqueId: Data, media: Bool, fullscreen: Bool) {
+            _internal_markAdAction(account: self.account, peerId: peerId, opaqueId: opaqueId, media: media, fullscreen: fullscreen)
         }
         
         public func getAllLocalChannels(count: Int) -> Signal<[EnginePeer.Id], NoError> {

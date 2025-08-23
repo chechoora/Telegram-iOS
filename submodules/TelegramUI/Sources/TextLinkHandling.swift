@@ -26,7 +26,7 @@ func handleTextLinkActionImpl(context: AccountContext, peerId: EnginePeer.Id?, n
         guard let peer = peer else {
             return
         }
-        context.sharedContext.openResolvedUrl(.peer(peer._asPeer(), navigation), context: context, urlContext: .generic, navigationController: (controller?.navigationController as? NavigationController), forceExternal: false, openPeer: { (peer, navigation) in
+        context.sharedContext.openResolvedUrl(.peer(peer._asPeer(), navigation), context: context, urlContext: .generic, navigationController: (controller?.navigationController as? NavigationController), forceExternal: false, forceUpdate: false, openPeer: { (peer, navigation) in
             switch navigation {
                 case let .chat(_, subject, peekData):
                     if let navigationController = controller?.navigationController as? NavigationController {
@@ -100,9 +100,9 @@ func handleTextLinkActionImpl(context: AccountContext, peerId: EnginePeer.Id?, n
                         let sourceLocation = InstantPageSourceLocation(userLocation: peerId.flatMap(MediaResourceUserLocation.peer) ?? .other, peerType: .group)
                         let browserController = context.sharedContext.makeInstantPageController(context: context, webPage: webPage, anchor: anchor, sourceLocation: sourceLocation)
                         (controller.navigationController as? NavigationController)?.pushViewController(browserController, animated: true)
-                    case .boost, .chatFolder, .join:
+                    case .boost, .chatFolder, .join, .invoice:
                         if let navigationController = controller.navigationController as? NavigationController {
-                            openResolvedUrlImpl(result, context: context, urlContext: peerId.flatMap { .chat(peerId: $0, message: nil, updatedPresentationData: nil) } ?? .generic, navigationController: navigationController, forceExternal: false, openPeer: { peer, navigateToPeer in
+                            openResolvedUrlImpl(result, context: context, urlContext: peerId.flatMap { .chat(peerId: $0, message: nil, updatedPresentationData: nil) } ?? .generic, navigationController: navigationController, forceExternal: false, forceUpdate: false, openPeer: { peer, navigateToPeer in
                                 openResolvedPeerImpl(peer, navigateToPeer)
                             }, sendFile: nil, sendSticker: nil, sendEmoji: nil, joinVoiceChat: nil, present: { c, a in
                                 controller.present(c, in: .window(.root), with: a)
@@ -116,7 +116,7 @@ func handleTextLinkActionImpl(context: AccountContext, peerId: EnginePeer.Id?, n
     }
     
     let openPeerMentionImpl: (String) -> Void = { mention in
-        navigateDisposable.set((context.engine.peers.resolvePeerByName(name: mention, ageLimit: 10)
+        navigateDisposable.set((context.engine.peers.resolvePeerByName(name: mention, referrer: nil, ageLimit: 10)
         |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
             guard case let .result(result) = result else {
                 return .complete()
@@ -187,7 +187,7 @@ func handleTextLinkActionImpl(context: AccountContext, peerId: EnginePeer.Id?, n
                             } else if url.hasPrefix("mailto:") {
                                 content = .copy(text: presentationData.strings.Conversation_EmailCopied)
                             } else {
-                                content = .linkCopied(text: presentationData.strings.Conversation_LinkCopied)
+                                content = .linkCopied(title: nil, text: presentationData.strings.Conversation_LinkCopied)
                             }
                             
                             let presentationData = context.sharedContext.currentPresentationData.with { $0 }

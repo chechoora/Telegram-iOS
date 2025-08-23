@@ -16,10 +16,11 @@ import AvatarNode
 import BundleIconComponent
 import PhotoResources
 import StarsAvatarComponent
+import GiftAnimationComponent
 
 private extension StarsContext.State.Transaction {
     var extendedId: String {
-        if self.count > 0 {
+        if self.count > StarsAmount.zero {
             return "\(id)_in"
         } else {
             return "\(id)_out"
@@ -101,6 +102,12 @@ final class StarsTransactionsListPanelComponent: Component {
     }
     
     private final class ScrollViewImpl: UIScrollView {
+        var forceDecelerating = false
+        
+        override var isDecelerating: Bool {
+            return self.forceDecelerating || super.isDecelerating
+        }
+        
         override func touchesShouldCancel(in view: UIView) -> Bool {
             return true
         }
@@ -110,8 +117,9 @@ final class StarsTransactionsListPanelComponent: Component {
         private let scrollView: ScrollViewImpl
         
         private let measureItem = ComponentView<Empty>()
-        private var visibleItems: [String: ComponentView<Empty>] = [:]
-        private var separatorViews: [String: UIView] = [:]
+        private var visibleItems: [AnyHashable: ComponentView<Empty>] = [:]
+        private var separatorLayers: [AnyHashable: SimpleLayer] = [:]
+        private var highlightLayer = SimpleLayer()
         
         private var ignoreScrolling: Bool = false
         
@@ -144,6 +152,8 @@ final class StarsTransactionsListPanelComponent: Component {
             self.scrollView.delegate = self
             self.scrollView.clipsToBounds = true
             self.addSubview(self.scrollView)
+            
+            self.scrollView.layer.addSublayer(self.highlightLayer)
         }
         
         required init?(coder: NSCoder) {
@@ -154,6 +164,15 @@ final class StarsTransactionsListPanelComponent: Component {
             self.itemsDisposable?.dispose()
         }
         
+        func scrollToTop() -> Bool {
+            if self.scrollView.contentOffset.y > 0.0 {
+                self.scrollView.setContentOffset(CGPoint(), animated: true)
+                return true
+            } else {
+                return false
+            }
+        }
+        
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             if !self.ignoreScrolling {
                 self.updateScrolling(transition: .immediate)
@@ -162,6 +181,79 @@ final class StarsTransactionsListPanelComponent: Component {
         
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             cancelContextGestures(view: scrollView)
+            if let decelerationAnimator = self.decelerationAnimator {
+                self.scrollView.forceDecelerating = false
+                self.decelerationAnimator = nil
+                decelerationAnimator.invalidate()
+            }
+        }
+        
+        private var decelerationAnimator: ConstantDisplayLinkAnimator?
+        func transferVelocity(_ velocity: CGFloat) {
+            if velocity <= 0.0 {
+                return
+            }
+            self.decelerationAnimator?.isPaused = true
+            let startTime = CACurrentMediaTime()
+            var currentOffset = self.scrollView.contentOffset
+            let decelerationRate: CGFloat = 0.998
+            self.scrollView.forceDecelerating = true
+            //self.scrollViewDidEndDragging(self.scrollView, willDecelerate: true)
+            self.decelerationAnimator = ConstantDisplayLinkAnimator(update: { [weak self] in
+                guard let strongSelf = self else {
+                    return
+                }
+                let t = CACurrentMediaTime() - startTime
+                var currentVelocity = velocity * 15.0 * CGFloat(pow(Double(decelerationRate), 1000.0 * t))
+                currentOffset.y += currentVelocity
+                let maxOffset = strongSelf.scrollView.contentSize.height - strongSelf.scrollView.bounds.height
+                if currentOffset.y >= maxOffset {
+                    currentOffset.y = maxOffset
+                    currentVelocity = 0.0
+                }
+                if currentOffset.y < 0.0 {
+                    currentOffset.y = 0.0
+                    currentVelocity = 0.0
+                }
+
+                var didEnd = false
+                if abs(currentVelocity) < 0.1 {
+                    strongSelf.decelerationAnimator?.isPaused = true
+                    strongSelf.decelerationAnimator = nil
+                    didEnd = true
+                }
+                var contentOffset = strongSelf.scrollView.contentOffset
+                contentOffset.y = floorToScreenPixels(currentOffset.y)
+                strongSelf.scrollView.setContentOffset(contentOffset, animated: false)
+                strongSelf.scrollViewDidScroll(strongSelf.scrollView)
+                if didEnd {
+                    //strongSelf.scrollViewDidEndDecelerating(strongSelf.scrollView)
+                    strongSelf.scrollView.forceDecelerating = false
+                }
+            })
+            self.decelerationAnimator?.isPaused = false
+        }
+        
+        private var highlightedItemId: AnyHashable?
+        private func updateHighlightedItem(itemId: AnyHashable?) {
+            guard let environment = self.environment else {
+                return
+            }
+            if self.highlightedItemId == itemId {
+                return
+            }
+            let previousHighlightedItemId = self.highlightedItemId
+            self.highlightedItemId = itemId
+            
+            if let _ = previousHighlightedItemId, itemId == nil {
+                ComponentTransition.easeInOut(duration: 0.2).setBackgroundColor(layer: self.highlightLayer, color: .clear)
+            }
+            if let itemId, let itemView = self.visibleItems[itemId]?.view {
+                var highlightFrame = itemView.frame
+                highlightFrame.size.height += UIScreenPixel
+                self.highlightLayer.frame = highlightFrame
+                ComponentTransition.immediate.setBackgroundColor(layer: self.highlightLayer, color: environment.theme.list.itemHighlightedBackgroundColor)
+            }
         }
         
         private func updateScrolling(transition: ComponentTransition) {
@@ -172,34 +264,34 @@ final class StarsTransactionsListPanelComponent: Component {
             var visibleBounds = environment.externalScrollBounds ?? self.scrollView.bounds
             visibleBounds = visibleBounds.insetBy(dx: 0.0, dy: -100.0)
             
-            var validIds = Set<String>()
+            var validIds = Set<AnyHashable>()
             if let visibleItems = itemLayout.visibleItems(for: visibleBounds) {
                 for index in visibleItems.lowerBound ..< visibleItems.upperBound {
                     if index >= self.items.count {
                         continue
                     }
                     let item = self.items[index]
-                    let id = item.extendedId
+                    let id = AnyHashable(item.extendedId)
                     validIds.insert(id)
                     
                     var itemTransition = transition
                     let itemView: ComponentView<Empty>
-                    let separatorView: UIView
-                    if let current = self.visibleItems[id], let currentSeparator = self.separatorViews[id] {
+                    let separatorLayer: SimpleLayer
+                    if let current = self.visibleItems[id], let currentSeparator = self.separatorLayers[id] {
                         itemView = current
-                        separatorView = currentSeparator
+                        separatorLayer = currentSeparator
                     } else {
                         itemTransition = .immediate
                         itemView = ComponentView()
                         self.visibleItems[id] = itemView
                         
-                        separatorView = UIView()
-                        self.separatorViews[id] = separatorView
-                        self.scrollView.addSubview(separatorView)
+                        separatorLayer = SimpleLayer()
+                        self.separatorLayers[id] = separatorLayer
+                        self.scrollView.layer.addSublayer(separatorLayer)
                     }
                     
-                    separatorView.backgroundColor = environment.theme.list.itemBlocksSeparatorColor
-                    separatorView.isHidden = index == self.items.count - 1
+                    separatorLayer.backgroundColor = environment.theme.list.itemBlocksSeparatorColor.cgColor
+                    separatorLayer.isHidden = index == self.items.count - 1
                                   
                     let fontBaseDisplaySize = 17.0
                     
@@ -207,9 +299,23 @@ final class StarsTransactionsListPanelComponent: Component {
                     let itemSubtitle: String?
                     var itemDate: String
                     var itemPeer = item.peer
+                    var itemFile: TelegramMediaFile?
+                    var uniqueGift: StarGift.UniqueGift?
                     switch item.peer {
                     case let .peer(peer):
-                        if let _ = item.giveawayMessageId {
+                        if let starGift = item.starGift {
+                            if item.flags.contains(.isStarGiftUpgrade), case let .unique(gift) = starGift {
+                                itemTitle = "\(gift.title) #\(gift.number)"
+                                itemSubtitle = environment.strings.Stars_Intro_Transaction_GiftUpgrade
+                                uniqueGift = gift
+                            } else {
+                                itemTitle = peer.displayTitle(strings: environment.strings, displayOrder: .firstLast)
+                                itemSubtitle = item.count > StarsAmount.zero ? environment.strings.Stars_Intro_Transaction_ConvertedGift : environment.strings.Stars_Intro_Transaction_Gift
+                                if case let .generic(gift) = starGift {
+                                    itemFile = gift.file
+                                }
+                            }
+                        } else if let _ = item.giveawayMessageId {
                             itemTitle = peer.displayTitle(strings: environment.strings, displayOrder: .firstLast)
                             itemSubtitle = environment.strings.Stars_Intro_Transaction_GiveawayPrize
                         } else if !item.media.isEmpty {
@@ -247,8 +353,13 @@ final class StarsTransactionsListPanelComponent: Component {
                                 itemSubtitle = environment.strings.Stars_Intro_Transaction_FragmentTopUp_Subtitle
                             }
                         } else {
-                            itemTitle = environment.strings.Stars_Intro_Transaction_FragmentWithdrawal_Title
-                            itemSubtitle = environment.strings.Stars_Intro_Transaction_FragmentWithdrawal_Subtitle
+                            if item.count > StarsAmount.zero && !item.flags.contains(.isRefund) {
+                                itemTitle = environment.strings.Stars_Intro_Transaction_FragmentTopUp_Title
+                                itemSubtitle = environment.strings.Stars_Intro_Transaction_FragmentTopUp_Subtitle
+                            } else {
+                                itemTitle = environment.strings.Stars_Intro_Transaction_FragmentWithdrawal_Title
+                                itemSubtitle = environment.strings.Stars_Intro_Transaction_FragmentWithdrawal_Subtitle
+                            }
                         }
                     case .premiumBot:
                         itemTitle = environment.strings.Stars_Intro_Transaction_PremiumBotTopUp_Title
@@ -256,6 +367,13 @@ final class StarsTransactionsListPanelComponent: Component {
                     case .ads:
                         itemTitle = environment.strings.Stars_Intro_Transaction_TelegramAds_Title
                         itemSubtitle = environment.strings.Stars_Intro_Transaction_TelegramAds_Subtitle
+                    case .apiLimitExtension:
+                        itemTitle = environment.strings.Stars_Intro_Transaction_TelegramBotApi_Title
+                        if let floodskipNumber = item.floodskipNumber {
+                            itemSubtitle = environment.strings.Stars_Intro_Transaction_TelegramBotApi_Messages(floodskipNumber)
+                        } else {
+                            itemSubtitle = nil
+                        }
                     case .unsupported:
                         itemTitle = environment.strings.Stars_Intro_Transaction_Unsupported_Title
                         itemSubtitle = nil
@@ -264,8 +382,9 @@ final class StarsTransactionsListPanelComponent: Component {
                     let itemLabel: NSAttributedString
                     let labelString: String
                     
-                    let formattedLabel = presentationStringsFormattedNumber(abs(Int32(item.count)), environment.dateTimeFormat.groupingSeparator)
-                    if item.count < 0 {
+                    let absCount = StarsAmount(value: abs(item.count.value), nanos: abs(item.count.nanos))
+                    let formattedLabel = presentationStringsFormattedNumber(absCount, environment.dateTimeFormat.groupingSeparator)
+                    if item.count < StarsAmount.zero {
                         labelString = "- \(formattedLabel)"
                     } else {
                         labelString = "+ \(formattedLabel)"
@@ -282,7 +401,7 @@ final class StarsTransactionsListPanelComponent: Component {
                         itemDate += " – \(environment.strings.Monetization_Transaction_Failed)"
                         itemDateColor = environment.theme.list.itemDestructiveColor
                     }
-                    
+                                        
                     var titleComponents: [AnyComponentWithIdentity<Empty>] = []
                     titleComponents.append(
                         AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(MultilineTextComponent(
@@ -295,15 +414,43 @@ final class StarsTransactionsListPanelComponent: Component {
                         )))
                     )
                     if let itemSubtitle {
-                        titleComponents.append(
-                            AnyComponentWithIdentity(id: AnyHashable(1), component: AnyComponent(MultilineTextComponent(
+                        let subtitleComponent: AnyComponent<Empty>
+                        if let itemFile {
+                            subtitleComponent = AnyComponent(
+                                HStack([
+                                    AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(
+                                        GiftAnimationComponent(
+                                            context: component.context,
+                                            theme: environment.theme,
+                                            file: itemFile,
+                                            still: true,
+                                            size: CGSize(width: 20.0, height: 20.0)
+                                        )
+                                    )),
+                                    AnyComponentWithIdentity(id: AnyHashable(1), component: AnyComponent(
+                                        MultilineTextComponent(
+                                            text: .plain(NSAttributedString(
+                                                string: itemSubtitle,
+                                                font: Font.regular(fontBaseDisplaySize * 16.0 / 17.0),
+                                                textColor: environment.theme.list.itemPrimaryTextColor
+                                            )
+                                        )
+                                    )))
+                                ], spacing: 2.0)
+                            )
+                        } else {
+                            subtitleComponent = AnyComponent(MultilineTextComponent(
                                 text: .plain(NSAttributedString(
                                     string: itemSubtitle,
                                     font: Font.regular(fontBaseDisplaySize * 16.0 / 17.0),
                                     textColor: environment.theme.list.itemPrimaryTextColor
                                 )),
                                 maximumNumberOfLines: 1
-                            )))
+                            ))
+                        }
+                        
+                        titleComponents.append(
+                            AnyComponentWithIdentity(id: AnyHashable(1), component: subtitleComponent)
                         )
                     }
                     titleComponents.append(
@@ -322,7 +469,7 @@ final class StarsTransactionsListPanelComponent: Component {
                             theme: environment.theme,
                             title: AnyComponent(VStack(titleComponents, alignment: .left, spacing: 2.0)),
                             contentInsets: UIEdgeInsets(top: 9.0, left: environment.containerInsets.left, bottom: 8.0, right: environment.containerInsets.right),
-                            leftIcon: .custom(AnyComponentWithIdentity(id: "avatar", component: AnyComponent(StarsAvatarComponent(context: component.context, theme: environment.theme, peer: itemPeer, photo: item.photo, media: item.media, backgroundColor: environment.theme.list.plainBackgroundColor))), false),
+                            leftIcon: .custom(AnyComponentWithIdentity(id: "avatar", component: AnyComponent(StarsAvatarComponent(context: component.context, theme: environment.theme, peer: itemPeer, photo: item.photo, media: item.media, uniqueGift: uniqueGift, backgroundColor: environment.theme.list.plainBackgroundColor))), false),
                             icon: nil,
                             accessory: .custom(ListActionItemComponent.CustomAccessory(component: AnyComponentWithIdentity(id: "label", component: AnyComponent(StarsLabelComponent(text: itemLabel))), insets: UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 16.0))),
                             action: { [weak self] _ in
@@ -332,12 +479,18 @@ final class StarsTransactionsListPanelComponent: Component {
                                 if !item.flags.contains(.isLocal) {
                                     component.action(item)
                                 }
+                            },
+                            updateIsHighlighted: { [weak self] _, highlighted in
+                                guard let self else {
+                                    return
+                                }
+                                self.updateHighlightedItem(itemId: highlighted ? id : nil)
                             }
                         )),
                         environment: {},
-                        containerSize: CGSize(width: itemLayout.containerWidth, height: itemLayout.itemHeight)
+                        containerSize: CGSize(width: itemLayout.containerWidth - itemLayout.containerInsets.left - itemLayout.containerInsets.right, height: itemLayout.itemHeight)
                     )
-                    let itemFrame = itemLayout.itemFrame(for: index)
+                    let itemFrame = itemLayout.itemFrame(for: index).offsetBy(dx: itemLayout.containerInsets.left, dy: 0.0)
                     if let itemComponentView = itemView.view {
                         if itemComponentView.superview == nil {
                             if !transition.animation.isImmediate {
@@ -348,11 +501,11 @@ final class StarsTransactionsListPanelComponent: Component {
                         itemTransition.setFrame(view: itemComponentView, frame: itemFrame)
                     }
                     let sideInset: CGFloat = 60.0 + environment.containerInsets.left
-                    itemTransition.setFrame(view: separatorView, frame: CGRect(x: sideInset, y: itemFrame.maxY, width: itemFrame.width - sideInset, height: UIScreenPixel))
+                    itemTransition.setFrame(layer: separatorLayer, frame: CGRect(x: sideInset, y: itemFrame.maxY, width: itemFrame.width - sideInset - environment.containerInsets.right, height: UIScreenPixel))
                 }
             }
             
-            var removeIds: [String] = []
+            var removeIds: [AnyHashable] = []
             for (id, itemView) in self.visibleItems {
                 if !validIds.contains(id) {
                     removeIds.append(id)
@@ -363,10 +516,10 @@ final class StarsTransactionsListPanelComponent: Component {
                     }
                 }
             }
-            for (id, separatorView) in self.separatorViews {
+            for (id, separatorLayer) in self.separatorLayers {
                 if !validIds.contains(id) {
-                    transition.setAlpha(view: separatorView, alpha: 0.0, completion: { [weak separatorView] _ in
-                        separatorView?.removeFromSuperview()
+                    transition.setAlpha(layer: separatorLayer, alpha: 0.0, completion: { [weak separatorLayer] _ in
+                        separatorLayer?.removeFromSuperlayer()
                     })
                 }
             }

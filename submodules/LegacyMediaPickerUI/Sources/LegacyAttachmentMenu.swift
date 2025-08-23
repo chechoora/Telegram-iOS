@@ -155,7 +155,7 @@ public func legacyStoryMediaEditor(context: AccountContext, item: TGMediaEditabl
     })
 }
 
-public func legacyMediaEditor(context: AccountContext, peer: Peer, threadTitle: String?, media: AnyMediaReference, mode: LegacyMediaEditorMode, initialCaption: NSAttributedString, snapshots: [UIView], transitionCompletion: (() -> Void)?, getCaptionPanelView: @escaping () -> TGCaptionPanelView?, sendMessagesWithSignals: @escaping ([Any]?, Bool, Int32) -> Void, present: @escaping (ViewController, Any?) -> Void) {
+public func legacyMediaEditor(context: AccountContext, peer: Peer, threadTitle: String?, media: AnyMediaReference, mode: LegacyMediaEditorMode, initialCaption: NSAttributedString, snapshots: [UIView], transitionCompletion: (() -> Void)?, getCaptionPanelView: @escaping () -> TGCaptionPanelView?, sendMessagesWithSignals: @escaping ([Any]?, Bool, Int32, Bool) -> Void, present: @escaping (ViewController, Any?) -> Void) {
     let _ = (fetchMediaData(context: context, postbox: context.account.postbox, userLocation: .other, mediaReference: media)
     |> deliverOnMainQueue).start(next: { (value, isImage) in
         guard case let .data(data) = value, data.complete else {
@@ -215,14 +215,46 @@ public func legacyMediaEditor(context: AccountContext, peer: Peer, threadTitle: 
             let signals = TGCameraController.resultSignals(for: nil, editingContext: editingContext, currentItem: selectableResult, storeAssets: false, saveEditedPhotos: false, descriptionGenerator: { _1, _2, _3 in
                 nativeGenerator(_1, _2, _3, nil)
             })
-            sendMessagesWithSignals(signals, false, 0)
+            let isCaptionAbove = editingContext?.isCaptionAbove() ?? false
+            sendMessagesWithSignals(signals, false, 0, isCaptionAbove)
         }, dismissed: { [weak legacyController] in
             legacyController?.dismiss()
         })
     })
 }
     
-public func legacyAttachmentMenu(context: AccountContext, peer: Peer?, threadTitle: String?, chatLocation: ChatLocation, editMediaOptions: LegacyAttachmentMenuMediaEditing?, saveEditedPhotos: Bool, allowGrouping: Bool, hasSchedule: Bool, canSendPolls: Bool, updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>), parentController: LegacyController, recentlyUsedInlineBots: [Peer], initialCaption: NSAttributedString, openGallery: @escaping () -> Void, openCamera: @escaping (TGAttachmentCameraView?, TGMenuSheetController?) -> Void, openFileGallery: @escaping () -> Void, openWebSearch: @escaping () -> Void, openMap: @escaping () -> Void, openContacts: @escaping () -> Void, openPoll: @escaping () -> Void, presentSelectionLimitExceeded: @escaping () -> Void, presentCantSendMultipleFiles: @escaping () -> Void, presentJpegConversionAlert: @escaping (@escaping (Bool) -> Void) -> Void, presentSchedulePicker: @escaping (Bool, @escaping (Int32) -> Void) -> Void, presentTimerPicker: @escaping (@escaping (Int32) -> Void) -> Void, sendMessagesWithSignals: @escaping ([Any]?, Bool, Int32, ((String) -> UIView?)?, @escaping () -> Void) -> Void, selectRecentlyUsedInlineBot: @escaping (Peer) -> Void, getCaptionPanelView: @escaping () -> TGCaptionPanelView?, present: @escaping (ViewController, Any?) -> Void) -> TGMenuSheetController {
+public func legacyAttachmentMenu(
+    context: AccountContext,
+    peer: Peer?,
+    threadTitle: String?,
+    chatLocation: ChatLocation,
+    editMediaOptions: LegacyAttachmentMenuMediaEditing?,
+    addingMedia: Bool,
+    saveEditedPhotos: Bool,
+    allowGrouping: Bool,
+    hasSchedule: Bool,
+    canSendPolls: Bool,
+    updatedPresentationData: (initial: PresentationData, signal: Signal<PresentationData, NoError>),
+    parentController: LegacyController,
+    recentlyUsedInlineBots: [Peer],
+    initialCaption: NSAttributedString,
+    openGallery: @escaping () -> Void,
+    openCamera: @escaping (TGAttachmentCameraView?, TGMenuSheetController?) -> Void,
+    openFileGallery: @escaping () -> Void,
+    openWebSearch: @escaping () -> Void,
+    openMap: @escaping () -> Void,
+    openContacts: @escaping () -> Void,
+    openPoll: @escaping () -> Void,
+    presentSelectionLimitExceeded: @escaping () -> Void,
+    presentCantSendMultipleFiles: @escaping () -> Void,
+    presentJpegConversionAlert: @escaping (@escaping (Bool) -> Void) -> Void,
+    presentSchedulePicker: @escaping (Bool, @escaping (Int32) -> Void) -> Void,
+    presentTimerPicker: @escaping (@escaping (Int32) -> Void) -> Void,
+    sendMessagesWithSignals: @escaping ([Any]?, Bool, Int32, ((String) -> UIView?)?, @escaping () -> Void) -> Void,
+    selectRecentlyUsedInlineBot: @escaping (Peer) -> Void,
+    getCaptionPanelView: @escaping () -> TGCaptionPanelView?,
+    present: @escaping (ViewController, Any?) -> Void
+) -> TGMenuSheetController {
     let defaultVideoPreset = defaultVideoPresetForContext(context)
     UserDefaults.standard.set(defaultVideoPreset.rawValue as NSNumber, forKey: "TG_preferredVideoPreset_v0")
     
@@ -382,7 +414,13 @@ public func legacyAttachmentMenu(context: AccountContext, peer: Peer?, threadTit
         }
         itemViews.append(carouselItem)
         
-        let galleryItem = TGMenuSheetButtonItemView(title: editing ? presentationData.strings.Conversation_EditingMessageMediaChange : presentationData.strings.AttachmentMenu_PhotoOrVideo, type: TGMenuSheetButtonTypeDefault, fontSize: fontSize, action: { [weak controller] in
+        let galleryTitle: String
+        if addingMedia {
+            galleryTitle = presentationData.strings.AttachmentMenu_AddPhotoOrVideo
+        } else {
+            galleryTitle = editing ? presentationData.strings.Conversation_EditingMessageMediaChange : presentationData.strings.AttachmentMenu_PhotoOrVideo
+        }
+        let galleryItem = TGMenuSheetButtonItemView(title: galleryTitle, type: TGMenuSheetButtonTypeDefault, fontSize: fontSize, action: { [weak controller] in
             controller?.dismiss(animated: true)
             openGallery()
         })!
@@ -395,11 +433,19 @@ public func legacyAttachmentMenu(context: AccountContext, peer: Peer?, threadTit
             }
         }
         itemViews.append(galleryItem)
-        
         underlyingViews.append(galleryItem)
+        
+        if addingMedia {
+            let fileItem = TGMenuSheetButtonItemView(title: presentationData.strings.AttachmentMenu_AddDocument, type: TGMenuSheetButtonTypeDefault, fontSize: fontSize, action: { [weak controller] in
+                controller?.dismiss(animated: true)
+                openFileGallery()
+            })!
+            itemViews.append(fileItem)
+            underlyingViews.append(fileItem)
+        }
     }
     
-    if !editing {
+    if !editing && !addingMedia {
         let fileItem = TGMenuSheetButtonItemView(title: presentationData.strings.AttachmentMenu_File, type: TGMenuSheetButtonTypeDefault, fontSize: fontSize, action: { [weak controller] in
             controller?.dismiss(animated: true)
             openFileGallery()
@@ -408,7 +454,7 @@ public func legacyAttachmentMenu(context: AccountContext, peer: Peer?, threadTit
         underlyingViews.append(fileItem)
     }
     
-    if canEditFile {
+    if canEditFile && !addingMedia {
         let fileItem = TGMenuSheetButtonItemView(title: presentationData.strings.AttachmentMenu_File, type: TGMenuSheetButtonTypeDefault, fontSize: fontSize, action: { [weak controller] in
             controller?.dismiss(animated: true)
             openFileGallery()
@@ -488,7 +534,7 @@ public func legacyAttachmentMenu(context: AccountContext, peer: Peer?, threadTit
         itemViews.append(editCurrentItem)
     }
     
-    if editMediaOptions == nil {
+    if editMediaOptions == nil && !addingMedia {
         let locationItem = TGMenuSheetButtonItemView(title: presentationData.strings.Conversation_Location, type: TGMenuSheetButtonTypeDefault, fontSize: fontSize, action: { [weak controller] in
             controller?.dismiss(animated: true)
             openMap()
@@ -520,7 +566,7 @@ public func legacyAttachmentMenu(context: AccountContext, peer: Peer?, threadTit
     
     carouselItemView?.underlyingViews = underlyingViews
     
-    if editMediaOptions == nil {
+    if editMediaOptions == nil && !addingMedia {
         for i in 0 ..< min(20, recentlyUsedInlineBots.count) {
             let peer = recentlyUsedInlineBots[i]
             let addressName = peer.addressName

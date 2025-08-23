@@ -54,7 +54,7 @@ public func paneGifSearchForQuery(context: AccountContext, query: String, offset
     let contextBot = context.engine.data.get(TelegramEngine.EngineData.Item.Configuration.SearchBots())
     |> mapToSignal { searchBots -> Signal<EnginePeer?, NoError> in
         let botName = searchBots.gifBotUsername ?? "gif"
-        return context.engine.peers.resolvePeerByName(name: botName)
+        return context.engine.peers.resolvePeerByName(name: botName, referrer: nil)
         |> mapToSignal { result in
             guard case let .result(result) = result else {
                 return .complete()
@@ -126,7 +126,7 @@ public func paneGifSearchForQuery(context: AccountContext, query: String, offset
                                 ))
                             }
                         }
-                        let file = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: uniqueId ?? 0), partialReference: nil, resource: resource, previewRepresentations: previews, videoThumbnails: videoThumbnails, immediateThumbnailData: nil, mimeType: "video/mp4", size: nil, attributes: [.Animated, .Video(duration: 0, size: dimensions, flags: [], preloadSize: nil, coverTime: nil)])
+                        let file = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: uniqueId ?? 0), partialReference: nil, resource: resource, previewRepresentations: previews, videoThumbnails: videoThumbnails, immediateThumbnailData: nil, mimeType: "video/mp4", size: nil, attributes: [.Animated, .Video(duration: 0, size: dimensions, flags: [], preloadSize: nil, coverTime: nil, videoCodec: nil)], alternativeRepresentations: [])
                         references.append(MultiplexedVideoNodeFile(file: FileMediaReference.standalone(media: file), contextResult: (collection, result)))
                     }
                 case let .internalReference(internalReference):

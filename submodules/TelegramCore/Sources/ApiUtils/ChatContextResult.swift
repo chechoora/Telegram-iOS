@@ -549,7 +549,7 @@ extension ChatContextResultMessage {
                 if let replyMarkup = replyMarkup {
                     parsedReplyMarkup = ReplyMarkupMessageAttribute(apiMarkup: replyMarkup)
                 }
-                self = .invoice(media: TelegramMediaInvoice(title: title, description: description, photo: photo.flatMap(TelegramMediaWebFile.init), receiptMessageId: nil, currency: currency, totalAmount: totalAmount, startParam: "", extendedMedia: nil, flags: parsedFlags, version: TelegramMediaInvoice.lastVersion), replyMarkup: parsedReplyMarkup)
+                self = .invoice(media: TelegramMediaInvoice(title: title, description: description, photo: photo.flatMap(TelegramMediaWebFile.init), receiptMessageId: nil, currency: currency, totalAmount: totalAmount, startParam: "", extendedMedia: nil, subscriptionPeriod: nil, flags: parsedFlags, version: TelegramMediaInvoice.lastVersion), replyMarkup: parsedReplyMarkup)
             case let .botInlineMessageMediaWebPage(flags, message, entities, url, replyMarkup):
                 var parsedReplyMarkup: ReplyMarkupMessageAttribute?
                 if let replyMarkup = replyMarkup {
@@ -598,7 +598,7 @@ extension ChatContextResult {
                 if let photo = photo, let parsedImage = telegramMediaImageFromApiPhoto(photo) {
                     image = parsedImage
                 }
-                if let document = document, let parsedFile = telegramMediaFileFromApiDocument(document) {
+                if let document = document, let parsedFile = telegramMediaFileFromApiDocument(document, altDocuments: []) {
                     file = parsedFile
                 }
                 self = .internalReference(ChatContextResult.InternalReference(queryId: queryId, id: id, type: type, title: title, description: description, image: image, file: file, message: ChatContextResultMessage(apiMessage: sendMessage)))

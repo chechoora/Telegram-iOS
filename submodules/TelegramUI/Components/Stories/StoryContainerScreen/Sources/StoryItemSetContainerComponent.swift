@@ -2864,7 +2864,7 @@ public final class StoryItemSetContainerComponent: Component {
                         style: .story,
                         placeholder: inputPlaceholder,
                         maxLength: 4096,
-                        queryTypes: [.mention, .emoji],
+                        queryTypes: [.mention, .hashtag, .emoji],
                         alwaysDarkWhenHasText: component.metrics.widthClass == .regular,
                         resetInputContents: resetInputContents,
                         nextInputMode: { [weak self] hasText in
@@ -2937,6 +2937,7 @@ public final class StoryItemSetContainerComponent: Component {
                             }
                             self.sendMessageContext.presentAttachmentMenu(view: self, subject: .default)
                         },
+                        attachmentButtonMode: component.slice.effectivePeer.isService ? nil : .attach,
                         myReaction: component.slice.item.storyItem.myReaction.flatMap { value -> MessageInputPanelComponent.MyReaction? in
                             var centerAnimation: TelegramMediaFile?
                             var animationFileId: Int64?
@@ -3007,6 +3008,7 @@ public final class StoryItemSetContainerComponent: Component {
                             }
                             self.performMoreAction(sourceView: sourceView, gesture: gesture)
                         },
+                        presentCaptionPositionTooltip: nil,
                         presentVoiceMessagesUnavailableTooltip: { [weak self] view in
                             guard let self, let component = self.component, self.voiceMessagesRestrictedTooltipController == nil else {
                                 return
@@ -3820,7 +3822,7 @@ public final class StoryItemSetContainerComponent: Component {
                 isVideo = true
                 soundAlpha = 1.0
                 for attribute in file.attributes {
-                    if case let .Video(_, _, flags, _, _) = attribute {
+                    if case let .Video(_, _, flags, _, _, _) = attribute {
                         if flags.contains(.isSilent) {
                             isSilentVideo = true
                             soundAlpha = 0.5
@@ -3853,7 +3855,7 @@ public final class StoryItemSetContainerComponent: Component {
                         var isSilentVideo = false
                         if case let .file(file) = component.slice.item.storyItem.media {
                             for attribute in file.attributes {
-                                if case let .Video(_, _, flags, _, _) = attribute {
+                                if case let .Video(_, _, flags, _, _, _) = attribute {
                                     if flags.contains(.isSilent) {
                                         isSilentVideo = true
                                     }
@@ -4339,6 +4341,7 @@ public final class StoryItemSetContainerComponent: Component {
                                                 urlContext: .generic,
                                                 navigationController: nextController?.navigationController as? NavigationController,
                                                 forceExternal: false,
+                                                forceUpdate: false,
                                                 openPeer: { _, _ in
                                                 },
                                                 sendFile: nil,
@@ -5392,7 +5395,7 @@ public final class StoryItemSetContainerComponent: Component {
                 if cover {
                     if case let .file(file) = component.slice.item.storyItem.media {
                         for attribute in file.attributes {
-                            if case let .Video(_, _, _, _, coverTime) = attribute {
+                            if case let .Video(_, _, _, _, coverTime, _) = attribute {
                                 videoPlaybackPosition = coverTime
                             }
                         }
@@ -5402,7 +5405,7 @@ public final class StoryItemSetContainerComponent: Component {
                 }
             }
             
-            guard let controller = MediaEditorScreen.makeEditStoryController(
+            guard let controller = MediaEditorScreenImpl.makeEditStoryController(
                 context: component.context,
                 peer: component.slice.effectivePeer,
                 storyItem: component.slice.item.storyItem,
@@ -6252,7 +6255,7 @@ public final class StoryItemSetContainerComponent: Component {
                                 
                                 component.presentController(UndoOverlayController(
                                     presentationData: presentationData,
-                                    content: .linkCopied(text: component.strings.Story_ToastLinkCopied),
+                                    content: .linkCopied(title: nil, text: component.strings.Story_ToastLinkCopied),
                                     elevatedLayout: false,
                                     animateInAsReplacement: false,
                                     blurred: true,
@@ -6465,7 +6468,7 @@ public final class StoryItemSetContainerComponent: Component {
                                 
                                 component.presentController(UndoOverlayController(
                                     presentationData: presentationData,
-                                    content: .linkCopied(text: component.strings.Story_ToastLinkCopied),
+                                    content: .linkCopied(title: nil, text: component.strings.Story_ToastLinkCopied),
                                     elevatedLayout: false,
                                     animateInAsReplacement: false,
                                     blurred: true,
@@ -6764,7 +6767,7 @@ public final class StoryItemSetContainerComponent: Component {
                                     
                                     component.presentController(UndoOverlayController(
                                         presentationData: presentationData,
-                                        content: .linkCopied(text: component.strings.Story_ToastLinkCopied),
+                                        content: .linkCopied(title: nil, text: component.strings.Story_ToastLinkCopied),
                                         elevatedLayout: false,
                                         animateInAsReplacement: false,
                                         blurred: true,
@@ -6961,48 +6964,70 @@ public final class StoryItemSetContainerComponent: Component {
                     if !component.slice.effectivePeer.isService {
                         items.append(.action(ContextMenuActionItem(text: component.strings.Story_Context_Report, icon: { theme in
                             return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Report"), color: theme.contextMenu.primaryColor)
-                        }, action: { [weak self] c, a in
+                        }, action: { [weak self] _, f in
                             guard let self, let component = self.component, let controller = component.controller() else {
                                 return
                             }
                             
-                            let options: [PeerReportOption] = [.spam, .violence, .pornography, .childAbuse, .copyright, .illegalDrugs, .personalDetails, .other]
-                            presentPeerReportOptions(
+                            f(.default)
+                            
+                            self.isReporting = true
+                            self.updateIsProgressPaused()
+                            
+                            component.context.sharedContext.makeContentReportScreen(
                                 context: component.context,
-                                parent: controller,
-                                contextController: c,
-                                backAction: { _ in },
-                                subject: .story(component.slice.effectivePeer.id, component.slice.item.storyItem.id),
-                                options: options,
-                                passthrough: true,
-                                forceTheme: defaultDarkPresentationTheme,
-                                isDetailedReportingVisible: { [weak self] isReporting in
+                                subject: .stories(component.slice.effectivePeer.id, [component.slice.item.storyItem.id]),
+                                forceDark: true,
+                                present: { c in
+                                    controller.push(c)
+                                },
+                                completion: { [weak self] in
                                     guard let self else {
                                         return
                                     }
-                                    self.isReporting = isReporting
+                                    self.isReporting = false
                                     self.updateIsProgressPaused()
                                 },
-                                completion: { [weak self] reason, _ in
-                                    guard let self, let component = self.component, let controller = component.controller(), let reason else {
-                                        return
-                                    }
-                                    let _ = component.context.engine.peers.reportPeerStory(peerId: component.slice.effectivePeer.id, storyId: component.slice.item.storyItem.id, reason: reason, message: "").startStandalone()
-                                    controller.present(
-                                        UndoOverlayController(
-                                            presentationData: presentationData,
-                                            content: .emoji(
-                                                name: "PoliceCar",
-                                                text: presentationData.strings.Report_Succeed
-                                            ),
-                                            elevatedLayout: false,
-                                            blurred: true,
-                                            action: { _ in return false }
-                                        )
-                                        , in: .current
-                                    )
-                                }
+                                requestSelectMessages: nil
                             )
+                            
+//                            let options: [PeerReportOption] = [.spam, .violence, .pornography, .childAbuse, .copyright, .illegalDrugs, .personalDetails, .other]
+//                            presentPeerReportOptions(
+//                                context: component.context,
+//                                parent: controller,
+//                                contextController: c,
+//                                backAction: { _ in },
+//                                subject: .story(component.slice.effectivePeer.id, component.slice.item.storyItem.id),
+//                                options: options,
+//                                passthrough: true,
+//                                forceTheme: defaultDarkPresentationTheme,
+//                                isDetailedReportingVisible: { [weak self] isReporting in
+//                                    guard let self else {
+//                                        return
+//                                    }
+//                                    self.isReporting = isReporting
+//                                    self.updateIsProgressPaused()
+//                                },
+//                                completion: { [weak self] reason, _ in
+//                                    guard let self, let component = self.component, let controller = component.controller(), let reason else {
+//                                        return
+//                                    }
+//                                    let _ = component.context.engine.peers.reportPeerStory(peerId: component.slice.effectivePeer.id, storyId: component.slice.item.storyItem.id, reason: reason, message: "").startStandalone()
+//                                    controller.present(
+//                                        UndoOverlayController(
+//                                            presentationData: presentationData,
+//                                            content: .emoji(
+//                                                name: "PoliceCar",
+//                                                text: presentationData.strings.Report_Succeed
+//                                            ),
+//                                            elevatedLayout: false,
+//                                            blurred: true,
+//                                            action: { _ in return false }
+//                                        )
+//                                        , in: .current
+//                                    )
+//                                }
+//                            )
                         })))
                     }
                 }

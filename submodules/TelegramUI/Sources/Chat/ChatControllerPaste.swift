@@ -10,9 +10,10 @@ import MediaPickerUI
 import MediaPasteboardUI
 import LegacyMediaPickerUI
 import MediaEditor
+import ChatEntityKeyboardInputNode
 
 extension ChatControllerImpl {
-    func displayPasteMenu(_ subjects: [MediaPickerScreen.Subject.Media]) {
+    func displayPasteMenu(_ subjects: [MediaPickerScreenImpl.Subject.Media]) {
         let _ = (self.context.sharedContext.accountManager.transaction { transaction -> GeneratedMediaStoreSettings in
             let entry = transaction.getSharedData(ApplicationSpecificSharedDataKeys.generatedMediaStoreSettings)?.get(GeneratedMediaStoreSettings.self)
             return entry ?? GeneratedMediaStoreSettings.defaultSettings
@@ -32,7 +33,13 @@ extension ChatControllerImpl {
                             })
                         }
                     },
-                    getSourceRect: nil
+                    getSourceRect: nil,
+                    makeEntityInputView: { [weak self] in
+                        guard let self else {
+                            return nil
+                        }
+                        return EntityInputView(context: self.context, isDark: false, areCustomEmojiEnabled: self.presentationInterfaceState.customEmojiAvailable)
+                    }
                 )
                 controller.navigationPresentation = .flatModal
                 strongSelf.push(controller)
@@ -88,7 +95,7 @@ extension ChatControllerImpl {
                 fileAttributes.append(.Sticker(displayText: "", packReference: nil, maskData: nil))
                 fileAttributes.append(.ImageSize(size: PixelDimensions(size)))
                 
-                let media = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: Int64.random(in: Int64.min ... Int64.max)), partialReference: nil, resource: resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "image/webp", size: Int64(data.count), attributes: fileAttributes)
+                let media = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: Int64.random(in: Int64.min ... Int64.max)), partialReference: nil, resource: resource, previewRepresentations: [], videoThumbnails: [], immediateThumbnailData: nil, mimeType: "image/webp", size: Int64(data.count), attributes: fileAttributes, alternativeRepresentations: [])
                 let message = EnqueueMessage.message(text: "", attributes: [], inlineStickers: [:], mediaReference: .standalone(media: media), threadId: strongSelf.chatLocation.threadId, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])
                 
                 let replyMessageSubject = strongSelf.presentationInterfaceState.interfaceState.replyMessageSubject
@@ -176,6 +183,7 @@ extension ChatControllerImpl {
             additionalVideoTrimRange: nil,
             additionalVideoOffset: nil,
             additionalVideoVolume: nil,
+            collage: [],
             nightTheme: false,
             drawing: nil,
             maskDrawing: blackImage,
@@ -186,6 +194,7 @@ extension ChatControllerImpl {
             audioTrackOffset: nil,
             audioTrackVolume: nil,
             audioTrackSamples: nil,
+            collageTrackSamples: nil,
             coverImageTimestamp: nil,
             qualityPreset: nil
         )
@@ -199,7 +208,6 @@ extension ChatControllerImpl {
             configuration: configuration,
             outputPath: path
         )
-        videoExport.start()
         
         let _ = (videoExport.status
         |> deliverOnMainQueue).startStandalone(next: { [weak self] status in
@@ -211,7 +219,7 @@ extension ChatControllerImpl {
                 var fileAttributes: [TelegramMediaFileAttribute] = []
                 fileAttributes.append(.FileName(fileName: "sticker.webm"))
                 fileAttributes.append(.Sticker(displayText: "", packReference: nil, maskData: nil))
-                fileAttributes.append(.Video(duration: animatedImage.duration, size: PixelDimensions(width: 512, height: 512), flags: [], preloadSize: nil, coverTime: nil))
+                fileAttributes.append(.Video(duration: animatedImage.duration, size: PixelDimensions(width: 512, height: 512), flags: [], preloadSize: nil, coverTime: nil, videoCodec: nil))
                 
                 let previewRepresentations: [TelegramMediaImageRepresentation] = []
 //                if let thumbnailResource {
@@ -220,7 +228,7 @@ extension ChatControllerImpl {
                 let resource = LocalFileMediaResource(fileId: Int64.random(in: Int64.min ... Int64.max))
                 self.context.account.postbox.mediaBox.copyResourceData(resource.id, fromTempPath: path)
                 
-                let file = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: Int64.random(in: Int64.min ... Int64.max)), partialReference: nil, resource: resource, previewRepresentations: previewRepresentations, videoThumbnails: [], immediateThumbnailData: nil, mimeType: "video/webm", size: 0, attributes: fileAttributes)
+                let file = TelegramMediaFile(fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: Int64.random(in: Int64.min ... Int64.max)), partialReference: nil, resource: resource, previewRepresentations: previewRepresentations, videoThumbnails: [], immediateThumbnailData: nil, mimeType: "video/webm", size: 0, attributes: fileAttributes, alternativeRepresentations: [])
                 self.enqueueStickerFile(file)
             default:
                 break

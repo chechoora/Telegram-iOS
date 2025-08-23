@@ -50,7 +50,7 @@ public func tagsForStoreMessage(incoming: Bool, attributes: [MessageAttribute], 
             var isAnimated = false
             inner: for attribute in file.attributes {
                 switch attribute {
-                    case let .Video(_, _, flags, _, _):
+                    case let .Video(_, _, flags, _, _, _):
                         if flags.contains(.instantRoundVideo) {
                             refinedTag = .voiceOrInstantVideo
                         } else {
@@ -126,7 +126,7 @@ public func tagsForStoreMessage(incoming: Bool, attributes: [MessageAttribute], 
 
 func apiMessagePeerId(_ messsage: Api.Message) -> PeerId? {
     switch messsage {
-        case let .message(_, _, _, _, _, messagePeerId, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
+        case let .message(_, _, _, _, _, messagePeerId, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
             let chatPeerId = messagePeerId
             return chatPeerId.peerId
         case let .messageEmpty(_, _, peerId):
@@ -135,14 +135,14 @@ func apiMessagePeerId(_ messsage: Api.Message) -> PeerId? {
             } else {
                 return nil
             }
-        case let .messageService(_, _, _, chatPeerId, _, _, _, _):
+        case let .messageService(_, _, _, chatPeerId, _, _, _, _, _):
             return chatPeerId.peerId
     }
 }
 
 func apiMessagePeerIds(_ message: Api.Message) -> [PeerId] {
     switch message {
-        case let .message(_, _, _, fromId, _, chatPeerId, savedPeerId, fwdHeader, viaBotId, viaBusinessBotId, replyTo, _, _, media, _, entities, _, _, _, _, _, _, _, _, _, _, _, _):
+        case let .message(_, _, _, fromId, _, chatPeerId, savedPeerId, fwdHeader, viaBotId, viaBusinessBotId, replyTo, _, _, media, _, entities, _, _, _, _, _, _, _, _, _, _, _, _, _):
             let peerId: PeerId = chatPeerId.peerId
             
             var result = [peerId]
@@ -216,7 +216,7 @@ func apiMessagePeerIds(_ message: Api.Message) -> [PeerId] {
             return result
         case .messageEmpty:
             return []
-        case let .messageService(_, _, fromId, chatPeerId, _, _, action, _):
+        case let .messageService(_, _, fromId, chatPeerId, _, _, action, _, _):
             let peerId: PeerId = chatPeerId.peerId
             var result = [peerId]
             
@@ -227,7 +227,7 @@ func apiMessagePeerIds(_ message: Api.Message) -> [PeerId] {
             }
             
             switch action {
-            case .messageActionChannelCreate, .messageActionChatDeletePhoto, .messageActionChatEditPhoto, .messageActionChatEditTitle, .messageActionEmpty, .messageActionPinMessage, .messageActionHistoryClear, .messageActionGameScore, .messageActionPaymentSent, .messageActionPaymentSentMe, .messageActionPhoneCall, .messageActionScreenshotTaken, .messageActionCustomAction, .messageActionBotAllowed, .messageActionSecureValuesSent, .messageActionSecureValuesSentMe, .messageActionContactSignUp, .messageActionGroupCall, .messageActionSetMessagesTTL, .messageActionGroupCallScheduled, .messageActionSetChatTheme, .messageActionChatJoinedByRequest, .messageActionWebViewDataSent, .messageActionWebViewDataSentMe, .messageActionGiftPremium, .messageActionGiftStars, .messageActionTopicCreate, .messageActionTopicEdit, .messageActionSuggestProfilePhoto, .messageActionSetChatWallPaper, .messageActionGiveawayLaunch, .messageActionGiveawayResults, .messageActionBoostApply, .messageActionRequestedPeerSentMe:
+            case .messageActionChannelCreate, .messageActionChatDeletePhoto, .messageActionChatEditPhoto, .messageActionChatEditTitle, .messageActionEmpty, .messageActionPinMessage, .messageActionHistoryClear, .messageActionGameScore, .messageActionPaymentSent, .messageActionPaymentSentMe, .messageActionPhoneCall, .messageActionScreenshotTaken, .messageActionCustomAction, .messageActionBotAllowed, .messageActionSecureValuesSent, .messageActionSecureValuesSentMe, .messageActionContactSignUp, .messageActionGroupCall, .messageActionSetMessagesTTL, .messageActionGroupCallScheduled, .messageActionSetChatTheme, .messageActionChatJoinedByRequest, .messageActionWebViewDataSent, .messageActionWebViewDataSentMe, .messageActionGiftPremium, .messageActionGiftStars, .messageActionTopicCreate, .messageActionTopicEdit, .messageActionSuggestProfilePhoto, .messageActionSetChatWallPaper, .messageActionGiveawayLaunch, .messageActionGiveawayResults, .messageActionBoostApply, .messageActionRequestedPeerSentMe, .messageActionStarGift, .messageActionStarGiftUnique:
                     break
                 case let .messageActionChannelMigrateFrom(_, chatId):
                     result.append(PeerId(namespace: Namespaces.Peer.CloudGroup, id: PeerId.Id._internalFromInt64Value(chatId)))
@@ -254,7 +254,7 @@ func apiMessagePeerIds(_ message: Api.Message) -> [PeerId] {
                     }
                 case let .messageActionRequestedPeer(_, peers):
                     result.append(contentsOf: peers.map(\.peerId))
-                case let .messageActionGiftCode(_, boostPeer, _, _, _, _, _, _):
+                case let .messageActionGiftCode(_, boostPeer, _, _, _, _, _, _, _):
                     if let boostPeer = boostPeer {
                         result.append(boostPeer.peerId)
                     }
@@ -270,7 +270,7 @@ func apiMessagePeerIds(_ message: Api.Message) -> [PeerId] {
 
 func apiMessageAssociatedMessageIds(_ message: Api.Message) -> (replyIds: ReferencedReplyMessageIds, generalIds: [MessageId])? {
     switch message {
-        case let .message(_, _, id, _, _, chatPeerId, _, _, _, _, replyTo, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
+        case let .message(_, _, id, _, _, chatPeerId, _, _, _, _, replyTo, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _):
             if let replyTo = replyTo {
                 let peerId: PeerId = chatPeerId.peerId
                 
@@ -295,7 +295,7 @@ func apiMessageAssociatedMessageIds(_ message: Api.Message) -> (replyIds: Refere
             }
         case .messageEmpty:
             break
-        case let .messageService(_, id, _, chatPeerId, replyHeader, _, _, _):
+        case let .messageService(_, id, _, chatPeerId, replyHeader, _, _, _, _):
             if let replyHeader = replyHeader {
                 switch replyHeader {
                 case let .messageReplyHeader(_, replyToMsgId, replyToPeerId, replyHeader, replyMedia, replyToTopId, quoteText, quoteEntities, quoteOffset):
@@ -350,9 +350,9 @@ func textMediaAndExpirationTimerFromApiMedia(_ media: Api.MessageMedia?, _ peerI
         case let .messageMediaGeoLive(_, geo, heading, period, proximityNotificationRadius):
             let mediaMap = telegramMediaMapFromApiGeoPoint(geo, title: nil, address: nil, provider: nil, venueId: nil, venueType: nil, liveBroadcastingTimeout: period, liveProximityNotificationRadius: proximityNotificationRadius, heading: heading)
             return (mediaMap, nil, nil, nil, nil)
-        case let .messageMediaDocument(flags, document, _, ttlSeconds):
+        case let .messageMediaDocument(flags, document, altDocuments, ttlSeconds):
             if let document = document {
-                if let mediaFile = telegramMediaFileFromApiDocument(document) {
+                if let mediaFile = telegramMediaFileFromApiDocument(document, altDocuments: altDocuments) {
                     return (mediaFile, ttlSeconds, (flags & (1 << 3)) != 0, (flags & (1 << 4)) != 0, nil)
                 }
             } else {
@@ -395,7 +395,7 @@ func textMediaAndExpirationTimerFromApiMedia(_ media: Api.MessageMedia?, _ peerI
             if (flags & (1 << 1)) != 0 {
                 parsedFlags.insert(.shippingAddressRequested)
             }
-            return (TelegramMediaInvoice(title: title, description: description, photo: photo.flatMap(TelegramMediaWebFile.init), receiptMessageId: receiptMsgId.flatMap { MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }, currency: currency, totalAmount: totalAmount, startParam: startParam, extendedMedia: apiExtendedMedia.flatMap({ TelegramExtendedMedia(apiExtendedMedia: $0, peerId: peerId) }), flags: parsedFlags, version: TelegramMediaInvoice.lastVersion), nil, nil, nil, nil)
+            return (TelegramMediaInvoice(title: title, description: description, photo: photo.flatMap(TelegramMediaWebFile.init), receiptMessageId: receiptMsgId.flatMap { MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }, currency: currency, totalAmount: totalAmount, startParam: startParam, extendedMedia: apiExtendedMedia.flatMap({ TelegramExtendedMedia(apiExtendedMedia: $0, peerId: peerId) }), subscriptionPeriod: nil, flags: parsedFlags, version: TelegramMediaInvoice.lastVersion), nil, nil, nil, nil)
         case let .messageMediaPoll(poll, results):
             switch poll {
             case let .poll(id, flags, question, answers, closePeriod, _):
@@ -654,7 +654,13 @@ func messageTextEntitiesFromApiEntities(_ entities: [Api.MessageEntity]) -> [Mes
 extension StoreMessage {
     convenience init?(apiMessage: Api.Message, accountPeerId: PeerId, peerIsForum: Bool, namespace: MessageId.Namespace = Namespaces.Message.Cloud) {
         switch apiMessage {
-            case let .message(flags, flags2, id, fromId, boosts, chatPeerId, savedPeerId, fwdFrom, viaBotId, viaBusinessBotId, replyTo, date, message, media, replyMarkup, entities, views, forwards, replies, editDate, postAuthor, groupingId, reactions, restrictionReason, ttlPeriod, quickReplyShortcutId, messageEffectId, factCheck):
+            case let .message(flags, flags2, id, fromId, boosts, chatPeerId, savedPeerId, fwdFrom, viaBotId, viaBusinessBotId, replyTo, date, message, media, replyMarkup, entities, views, forwards, replies, editDate, postAuthor, groupingId, reactions, restrictionReason, ttlPeriod, quickReplyShortcutId, messageEffectId, factCheck, reportDeliveryUntilDate):
+                var attributes: [MessageAttribute] = []
+            
+                if (flags2 & (1 << 4)) != 0 {
+                    attributes.append(PendingProcessingMessageAttribute(approximateCompletionTime: date))
+                }
+            
                 let resolvedFromId = fromId?.peerId ?? chatPeerId.peerId
             
                 var namespace = namespace
@@ -675,8 +681,6 @@ extension StoreMessage {
                         peerId = PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(channelId))
                         authorId = resolvedFromId
                 }
-                
-                var attributes: [MessageAttribute] = []
                 
                 var threadId: Int64?
                 if let replyTo = replyTo {
@@ -725,7 +729,7 @@ extension StoreMessage {
                                     threadId = Int64(threadIdValue.id)
                                 }
                             }
-                            attributes.append(ReplyMessageAttribute(messageId: MessageId(peerId: replyPeerId, namespace: namespace, id: replyToMsgId), threadMessageId: threadMessageId, quote: quote, isQuote: isQuote))
+                            attributes.append(ReplyMessageAttribute(messageId: MessageId(peerId: replyPeerId, namespace: Namespaces.Message.Cloud, id: replyToMsgId), threadMessageId: threadMessageId, quote: quote, isQuote: isQuote))
                         }
                         if let replyHeader = replyHeader {
                             attributes.append(QuotedReplyMessageAttribute(apiHeader: replyHeader, quote: quote, isQuote: isQuote))
@@ -867,7 +871,7 @@ extension StoreMessage {
                     attributes.append(InlineBusinessBotMessageAttribute(peerId: PeerId(namespace: Namespaces.Peer.CloudUser, id: PeerId.Id._internalFromInt64Value(viaBusinessBotId)), title: nil))
                 }
                 
-                if namespace != Namespaces.Message.ScheduledCloud && namespace != Namespaces.Message.QuickReplyCloud {
+                if !Namespaces.Message.allNonRegular.contains(namespace) {
                     if let views = views {
                         attributes.append(ViewCountMessageAttribute(count: Int(views)))
                     }
@@ -887,6 +891,10 @@ extension StoreMessage {
                     attributes.append(EditedMessageAttribute(date: editDate, isHidden: (flags & (1 << 21)) != 0))
                 }
                 
+                if let reportDeliveryUntilDate {
+                    attributes.append(ReportDeliveryMessageAttribute(untilDate: reportDeliveryUntilDate, isReported: false))
+                }
+            
                 var entitiesAttribute: TextEntitiesMessageAttribute?
                 if let entities = entities, !entities.isEmpty {
                     let attribute = TextEntitiesMessageAttribute(entities: messageTextEntitiesFromApiEntities(entities))
@@ -1011,7 +1019,7 @@ extension StoreMessage {
                 self.init(id: MessageId(peerId: peerId, namespace: namespace, id: id), globallyUniqueId: nil, groupingKey: groupingId, threadId: threadId, timestamp: date, flags: storeFlags, tags: tags, globalTags: globalTags, localTags: [], forwardInfo: forwardInfo, authorId: authorId, text: messageText, attributes: attributes, media: medias)
             case .messageEmpty:
                 return nil
-            case let .messageService(flags, id, fromId, chatPeerId, replyTo, date, action, ttlPeriod):
+            case let .messageService(flags, id, fromId, chatPeerId, replyTo, date, action, reactions, ttlPeriod):
                 let peerId: PeerId = chatPeerId.peerId
                 let authorId: PeerId? = fromId?.peerId ?? chatPeerId.peerId
                 
@@ -1070,6 +1078,10 @@ extension StoreMessage {
                 if (flags & (1 << 17)) != 0 {
                     attributes.append(ContentRequiresValidationMessageAttribute())
                 }
+            
+                if let reactions = reactions {
+                    attributes.append(ReactionsMessageAttribute(apiReactions: reactions))
+                }
                 
                 var storeFlags = StoreMessageFlags()
                 if (flags & 2) == 0 {
@@ -1115,6 +1127,10 @@ extension StoreMessage {
             
                 if (flags & (1 << 27)) != 0 {
                     storeFlags.insert(.IsForumTopic)
+                }
+            
+                if (flags & (1 << 9)) != 0 {
+                    storeFlags.insert(.ReactionsArePossible)
                 }
                 
                 self.init(id: MessageId(peerId: peerId, namespace: namespace, id: id), globallyUniqueId: nil, groupingKey: nil, threadId: threadId, timestamp: date, flags: storeFlags, tags: tags, globalTags: globalTags, localTags: [], forwardInfo: nil, authorId: authorId, text: "", attributes: attributes, media: media)

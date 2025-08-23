@@ -181,8 +181,8 @@ func openChatMessageImpl(_ params: OpenChatMessageParams) -> Bool {
                 controller.navigationPresentation = .modal
                 params.navigationController?.pushViewController(controller)
                 return true
-            case let .stickerPack(reference):
-                let controller = StickerPackScreen(context: params.context, updatedPresentationData: params.updatedPresentationData, mainStickerPack: reference, stickerPacks: [reference], parentNavigationController: params.navigationController, sendSticker: params.sendSticker, sendEmoji: params.sendEmoji, actionPerformed: { actions in
+            case let .stickerPack(reference, previewIconFile):
+                let controller = StickerPackScreen(context: params.context, updatedPresentationData: params.updatedPresentationData, mainStickerPack: reference, stickerPacks: [reference], previewIconFile: previewIconFile, parentNavigationController: params.navigationController, sendSticker: params.sendSticker, sendEmoji: params.sendEmoji, actionPerformed: { actions in
                     let presentationData = params.context.sharedContext.currentPresentationData.with { $0 }
                     
                     if actions.count > 1, let first = actions.first {
@@ -250,9 +250,9 @@ func openChatMessageImpl(_ params: OpenChatMessageParams) -> Bool {
                             
                             let subject: BrowserScreen.Subject
                             if file.mimeType == "application/pdf" {
-                                subject = .pdfDocument(file: file, canShare: canShare)
+                                subject = .pdfDocument(file: .message(message: MessageReference(params.message), media: file), canShare: canShare)
                             } else {
-                                subject = .document(file: file, canShare: canShare)
+                                subject = .document(file: .message(message: MessageReference(params.message), media: file), canShare: canShare)
                             }
                             let controller = BrowserScreen(context: params.context, subject: subject)
                             controller.openDocument = { file, canShare in
@@ -308,7 +308,7 @@ func openChatMessageImpl(_ params: OpenChatMessageParams) -> Bool {
                     }
                     playerType = (file.isVoice || file.isInstantVideo) ? .voice : .file
                 }
-                params.context.sharedContext.mediaManager.setPlaylist((params.context.account, PeerMessagesMediaPlaylist(context: params.context, location: location, chatLocationContextHolder: params.chatLocationContextHolder)), type: playerType, control: control)
+                params.context.sharedContext.mediaManager.setPlaylist((params.context, PeerMessagesMediaPlaylist(context: params.context, location: location, chatLocationContextHolder: params.chatLocationContextHolder)), type: playerType, control: control)
                 return true
             case let .story(storyController):
                 params.dismissInput()

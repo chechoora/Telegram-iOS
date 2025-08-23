@@ -16,6 +16,7 @@ import ChatMessageItemCommon
 import ChatMessageInteractiveMediaNode
 import ChatControllerInteraction
 import InvisibleInkDustNode
+import TelegramUniversalVideoContent
 
 public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
     override public var supportsMosaic: Bool {
@@ -87,6 +88,12 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                 return
             }
             strongSelf.item?.controllerInteraction.playMessageEffect(message)
+        }
+        self.interactiveImageNode.requestInlineUpdate = { [weak self] in
+            guard let self else {
+                return
+            }
+            self.requestInlineUpdate?()
         }
     }
     
@@ -163,7 +170,9 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                                     automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(telegramFile.resource) != nil
                                 }
                             } else if (telegramFile.isVideo && !telegramFile.isAnimated) && item.context.sharedContext.energyUsageSettings.autoplayVideo {
-                                if case .full = automaticDownload {
+                                if NativeVideoContent.isHLSVideo(file: telegramFile) {
+                                    automaticPlayback = true
+                                } else if case .full = automaticDownload {
                                     automaticPlayback = true
                                 } else {
                                     automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(telegramFile.resource) != nil
@@ -174,14 +183,18 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                     } else if let invoice = media as? TelegramMediaInvoice {
                         selectedMedia = invoice
                         extendedMedia = invoice.extendedMedia
-                    } 
-                    else if let paidContent = media as? TelegramMediaPaidContent {
+                    } else if let paidContent = media as? TelegramMediaPaidContent {
                         selectedMedia = paidContent
                         if case let .mosaic(_, _, index) = preparePosition, let index {
                             extendedMedia = paidContent.extendedMedia[index]
                             selectedMediaIndex = index
                         } else {
                             extendedMedia = paidContent.extendedMedia.first
+                        }
+                    } else if let webFile = media as? TelegramMediaWebFile {
+                        selectedMedia = webFile
+                        if item.presentationData.isPreview {
+                            automaticDownload = .full
                         }
                     }
                 }
@@ -207,7 +220,9 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
                                 automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(telegramFile.resource) != nil
                             }
                         } else if (telegramFile.isVideo && !telegramFile.isAnimated) && item.context.sharedContext.energyUsageSettings.autoplayVideo {
-                            if case .full = automaticDownload {
+                            if NativeVideoContent.isHLSVideo(file: telegramFile) {
+                                automaticPlayback = true
+                            } else if case .full = automaticDownload {
                                 automaticPlayback = true
                             } else {
                                 automaticPlayback = item.context.account.postbox.mediaBox.completedResourcePath(telegramFile.resource) != nil
@@ -552,6 +567,13 @@ public class ChatMessageMediaBubbleContentNode: ChatMessageBubbleContentNode {
     override public func messageEffectTargetView() -> UIView? {
         if !self.interactiveImageNode.dateAndStatusNode.isHidden {
             return self.interactiveImageNode.dateAndStatusNode.messageEffectTargetView()
+        }
+        return nil
+    }
+    
+    override public func getStatusNode() -> ASDisplayNode? {
+        if !self.interactiveImageNode.dateAndStatusNode.isHidden {
+            return self.interactiveImageNode.dateAndStatusNode
         }
         return nil
     }

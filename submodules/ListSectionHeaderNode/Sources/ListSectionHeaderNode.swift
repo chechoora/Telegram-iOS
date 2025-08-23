@@ -67,14 +67,7 @@ public final class ListSectionHeaderNode: ASDisplayNode {
             }
         }
         if let action = self.action {
-            let actionColor: UIColor
-            switch self.actionType {
-                case .generic:
-                    actionColor = self.theme.chatList.sectionHeaderTextColor
-                case .destructive:
-                    actionColor = self.theme.list.itemDestructiveColor
-            }
-            self.actionButtonLabel?.attributedText = NSAttributedString(string: action, font: actionFont, textColor: actionColor)
+            self.updateActionTitle()
             self.actionButton?.accessibilityLabel = action
             self.actionButton?.accessibilityTraits = [.button]
         }
@@ -84,7 +77,7 @@ public final class ListSectionHeaderNode: ASDisplayNode {
         }
     }
     
-    public var activateAction: (() -> Void)?
+    public var activateAction: ((ASDisplayNode) -> Void)?
     
     public init(theme: PresentationTheme) {
         self.theme = theme
@@ -115,16 +108,38 @@ public final class ListSectionHeaderNode: ASDisplayNode {
         return super.hitTest(point, with: event)
     }
     
+    private func updateActionTitle() {
+        guard let action = self.action else {
+            return
+        }
+        let actionColor: UIColor
+        switch self.actionType {
+            case .generic:
+                actionColor = self.theme.chatList.sectionHeaderTextColor
+            case .destructive:
+                actionColor = self.theme.list.itemDestructiveColor
+        }
+        let attributedText = NSMutableAttributedString(string: action, font: actionFont, textColor: actionColor)
+        if let range = attributedText.string.range(of: "<"), let arrowImage = UIImage(bundleImageName: "Item List/HeaderContextDisclosureArrow") {
+            attributedText.addAttribute(.attachment, value: arrowImage, range: NSRange(range, in: attributedText.string))
+            attributedText.addAttribute(.baselineOffset, value: 2.0, range: NSRange(range, in: attributedText.string))
+        }
+        if let range = attributedText.string.range(of: ">"), let arrowImage = UIImage(bundleImageName: "Item List/InlineTextRightArrow") {
+            attributedText.addAttribute(.attachment, value: arrowImage, range: NSRange(range, in: attributedText.string))
+            attributedText.addAttribute(.baselineOffset, value: 1.0, range: NSRange(range, in: attributedText.string))
+        }
+        self.actionButtonLabel?.attributedText = attributedText
+    }
+    
     public func updateTheme(theme: PresentationTheme) {
         if self.theme !== theme {
             self.theme = theme
+                        
+            self.backgroundLayer.backgroundColor = theme.chatList.sectionHeaderFillColor.cgColor
             
             self.label.attributedText = NSAttributedString(string: self.title ?? "", font: titleFont, textColor: self.theme.chatList.sectionHeaderTextColor)
-            
-            self.backgroundLayer.backgroundColor = theme.chatList.sectionHeaderFillColor.cgColor
-            if let action = self.action {
-                self.actionButtonLabel?.attributedText = NSAttributedString(string: action, font: actionFont, textColor: self.theme.chatList.sectionHeaderTextColor)
-            }
+
+            self.updateActionTitle()
             
             if let (size, leftInset, rightInset) = self.validLayout {
                 self.updateLayout(size: size, leftInset: leftInset, rightInset: rightInset)
@@ -147,6 +162,8 @@ public final class ListSectionHeaderNode: ASDisplayNode {
     }
     
     @objc private func actionButtonPressed() {
-        self.activateAction?()
+        if let actionButton = self.actionButton {
+            self.activateAction?(actionButton)
+        }
     }
 }

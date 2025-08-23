@@ -645,7 +645,8 @@ private final class DemoSheetContent: CombinedComponent {
                                         immediateThumbnailData: file.immediateThumbnailData,
                                         mimeType: file.mimeType,
                                         size: file.size,
-                                        attributes: file.attributes
+                                        attributes: file.attributes,
+                                        alternativeRepresentations: file.alternativeRepresentations
                                     )
                                 }
                             default:
@@ -1275,6 +1276,9 @@ private final class DemoSheetContent: CombinedComponent {
                             buttonText = strings.Premium_MessagePrivacy_Proceed
                         case .folderTags:
                             buttonText = strings.Premium_FolderTags_Proceed
+                        case .emojiStatus:
+                            buttonText = strings.Premium_EmojiStatus_Proceed
+                            buttonAnimationName = "premium_unlock"
                         default:
                             buttonText = strings.Common_OK
                     }

@@ -176,12 +176,12 @@ final class MonetizationBalanceItemNode: ListViewItemNode, ItemListItemNode {
             
             var isStars = false
             if let stats = item.stats as? RevenueStats {
-                let cryptoValue = formatTonAmountText(stats.balances.availableBalance, decimalSeparator: item.presentationData.dateTimeFormat.decimalSeparator)
+                let cryptoValue = formatTonAmountText(stats.balances.availableBalance, dateTimeFormat: item.presentationData.dateTimeFormat)
                 amountString = tonAmountAttributedString(cryptoValue, integralFont: integralFont, fractionalFont: fractionalFont, color: item.presentationData.theme.list.itemPrimaryTextColor)
                 value = stats.balances.availableBalance == 0 ? "" : "≈\(formatTonUsdValue(stats.balances.availableBalance, rate: stats.usdRate, dateTimeFormat: item.presentationData.dateTimeFormat))"
             } else if let stats = item.stats as? StarsRevenueStats {
-                amountString = NSAttributedString(string: presentationStringsFormattedNumber(Int32(stats.balances.availableBalance), item.presentationData.dateTimeFormat.groupingSeparator), font: integralFont, textColor: item.presentationData.theme.list.itemPrimaryTextColor)
-                value = stats.balances.availableBalance == 0 ? "" : "≈\(formatTonUsdValue(stats.balances.availableBalance, divide: false, rate: stats.usdRate, dateTimeFormat: item.presentationData.dateTimeFormat))"
+                amountString = NSAttributedString(string: presentationStringsFormattedNumber(stats.balances.availableBalance, item.presentationData.dateTimeFormat.groupingSeparator), font: integralFont, textColor: item.presentationData.theme.list.itemPrimaryTextColor)
+                value = stats.balances.availableBalance == StarsAmount.zero ? "" : "≈\(formatTonUsdValue(stats.balances.availableBalance.value, divide: false, rate: stats.usdRate, dateTimeFormat: item.presentationData.dateTimeFormat))"
                 isStars = true
             } else {
                 fatalError()
@@ -417,7 +417,7 @@ final class MonetizationBalanceItemNode: ListViewItemNode, ItemListItemNode {
                         allowActionWhenDisabled: false,
                         displaysProgress: false,
                         action: { [weak self] in
-                            guard let self, let item = self.item, item.isEnabled else {
+                            guard let self, let item = self.item else {
                                 return
                             }
                             item.buyAdsAction?()

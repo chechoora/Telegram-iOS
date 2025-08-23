@@ -461,6 +461,39 @@ open class TelegramBaseController: ViewController, KeyShortcutResponder {
                         invite: nil,
                         activeCall: EngineGroupCallDescription(id: groupCallPanelData.info.id, accessHash: groupCallPanelData.info.accessHash, title: groupCallPanelData.info.title, scheduleTimestamp: groupCallPanelData.info.scheduleTimestamp, subscribedToScheduled: groupCallPanelData.info.subscribedToScheduled, isStream: groupCallPanelData.info.isStream)
                     )
+                }, notifyScheduledTapAction: { [weak self] in
+                    guard let self, let groupCallPanelData = self.groupCallPanelData else {
+                        return
+                    }
+                    if groupCallPanelData.info.scheduleTimestamp != nil && !groupCallPanelData.info.subscribedToScheduled {
+                        let _ = self.context.engine.calls.toggleScheduledGroupCallSubscription(peerId: groupCallPanelData.peerId, callId: groupCallPanelData.info.id, accessHash: groupCallPanelData.info.accessHash, subscribe: true).startStandalone()
+                        
+                        let controller = UndoOverlayController(
+                            presentationData: presentationData,
+                            content: .universal(
+                                animation: "anim_set_notification",
+                                scale: 0.06,
+                                colors: [
+                                    "Middle.Group 1.Fill 1": UIColor.white,
+                                    "Top.Group 1.Fill 1": UIColor.white,
+                                    "Bottom.Group 1.Fill 1": UIColor.white,
+                                    "EXAMPLE.Group 1.Fill 1": UIColor.white,
+                                    "Line.Group 1.Stroke 1": UIColor.white
+                                ],
+                                title: nil,
+                                text: presentationData.strings.Chat_ToastSubscribedToScheduledLiveStream_Text,
+                                customUndoText: nil,
+                                timeout: nil
+                            ),
+                            elevatedLayout: false,
+                            animateInAsReplacement: false,
+                            action: { _ in
+                                return true
+                            }
+                        )
+                        self.audioRateTooltipController = controller
+                        self.present(controller, in: .current)
+                    }
                 })
                 if let accessoryPanelContainer = self.accessoryPanelContainer {
                     accessoryPanelContainer.addSubnode(groupCallAccessoryPanel)

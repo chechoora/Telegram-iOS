@@ -58,6 +58,7 @@ func openResolvedUrlImpl(
     urlContext: OpenURLContext,
     navigationController: NavigationController?,
     forceExternal: Bool,
+    forceUpdate: Bool,
     openPeer: @escaping (EnginePeer, ChatControllerInteractionNavigateToPeer) -> Void,
     sendFile: ((FileMediaReference) -> Void)?,
     sendSticker: ((FileMediaReference, UIView, CGRect) -> Bool)?,
@@ -222,7 +223,16 @@ func openResolvedUrlImpl(
         case let .stickerPack(name, _):
             dismissInput()
 
-            let controller = StickerPackScreen(context: context, updatedPresentationData: updatedPresentationData, mainStickerPack: .name(name), stickerPacks: [.name(name)], parentNavigationController: navigationController, sendSticker: sendSticker, sendEmoji: sendEmoji, actionPerformed: { actions in
+            let controller = StickerPackScreen(
+                context: context,
+                updatedPresentationData: updatedPresentationData,
+                mainStickerPack: .name(name),
+                stickerPacks: [.name(name)],
+                ignoreCache: forceUpdate,
+                parentNavigationController: navigationController,
+                sendSticker: sendSticker,
+                sendEmoji: sendEmoji,
+                actionPerformed: { actions in
                 if actions.count > 1, let first = actions.first {
                     if case .add = first.2 {
                         present(UndoOverlayController(presentationData: presentationData, content: .stickersModified(title: presentationData.strings.EmojiPackActionInfo_AddedTitle, text: presentationData.strings.EmojiPackActionInfo_MultipleAddedText(Int32(actions.count)), undo: false, info: first.0, topItem: first.1.first, context: context), elevatedLayout: true, animateInAsReplacement: false, action: { _ in
@@ -290,15 +300,15 @@ func openResolvedUrlImpl(
                             if let photoRepresentation = invite.photoRepresentation {
                                 photo.append(photoRepresentation)
                             }
-                            let channel = TelegramChannel(id: PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(0)), accessHash: .genericPublic(0), title: invite.title, username: nil, photo: photo, creationDate: 0, version: 0, participationStatus: .left, info: .broadcast(TelegramChannelBroadcastInfo(flags: [])), flags: [], restrictionInfo: nil, adminRights: nil, bannedRights: nil, defaultBannedRights: nil, usernames: [], storiesHidden: nil, nameColor: invite.nameColor, backgroundEmojiId: nil, profileColor: nil, profileBackgroundEmojiId: nil, emojiStatus: nil, approximateBoostLevel: nil, subscriptionUntilDate: nil)
-                            let invoice = TelegramMediaInvoice(title: "", description: "", photo: nil, receiptMessageId: nil, currency: "XTR", totalAmount: subscriptionPricing.amount, startParam: "", extendedMedia: nil, flags: [], version: 0)
+                            let channel = TelegramChannel(id: PeerId(namespace: Namespaces.Peer.CloudChannel, id: PeerId.Id._internalFromInt64Value(0)), accessHash: .genericPublic(0), title: invite.title, username: nil, photo: photo, creationDate: 0, version: 0, participationStatus: .left, info: .broadcast(TelegramChannelBroadcastInfo(flags: [])), flags: [], restrictionInfo: nil, adminRights: nil, bannedRights: nil, defaultBannedRights: nil, usernames: [], storiesHidden: nil, nameColor: invite.nameColor, backgroundEmojiId: nil, profileColor: nil, profileBackgroundEmojiId: nil, emojiStatus: nil, approximateBoostLevel: nil, subscriptionUntilDate: nil, verificationIconFileId: nil)
+                            let invoice = TelegramMediaInvoice(title: "", description: "", photo: nil, receiptMessageId: nil, currency: "XTR", totalAmount: subscriptionPricing.amount.value, startParam: "", extendedMedia: nil, subscriptionPeriod: nil, flags: [], version: 0)
                             
                             inputData.set(.single(BotCheckoutController.InputData(
                                 form: BotPaymentForm(
                                     id: subscriptionFormId,
                                     canSaveCredentials: false,
                                     passwordMissing: false,
-                                    invoice: BotPaymentInvoice(isTest: false, requestedFields: [], currency: "XTR", prices: [BotPaymentPrice(label: "", amount: subscriptionPricing.amount)], tip: nil, termsInfo: nil),
+                                    invoice: BotPaymentInvoice(isTest: false, requestedFields: [], currency: "XTR", prices: [BotPaymentPrice(label: "", amount: subscriptionPricing.amount.value)], tip: nil, termsInfo: nil, subscriptionPeriod: subscriptionPricing.period),
                                     paymentBotId: channel.id,
                                     providerId: nil,
                                     url: nil,
@@ -454,7 +464,7 @@ func openResolvedUrlImpl(
             
             if let to = to {
                 if to.hasPrefix("@") {
-                    let _ = (context.engine.peers.resolvePeerByName(name: String(to[to.index(to.startIndex, offsetBy: 1)...]))
+                    let _ = (context.engine.peers.resolvePeerByName(name: String(to[to.index(to.startIndex, offsetBy: 1)...]), referrer: nil)
                     |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
                         guard case let .result(result) = result else {
                             return .complete()
@@ -491,7 +501,7 @@ func openResolvedUrlImpl(
                 if let url = url, !url.isEmpty {
                     let shareController = ShareController(context: context, subject: .url(url), presetText: text, externalShare: false, immediateExternalShare: false)
                     shareController.actionCompleted = {
-                        present(UndoOverlayController(presentationData: presentationData, content: .linkCopied(text: presentationData.strings.Conversation_LinkCopied), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return false }), nil)
+                        present(UndoOverlayController(presentationData: presentationData, content: .linkCopied(title: nil, text: presentationData.strings.Conversation_LinkCopied), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return false }), nil)
                     }
                     present(shareController, nil)
                     context.sharedContext.applicationBindings.dismissNativeController()
@@ -715,7 +725,7 @@ func openResolvedUrlImpl(
                         navigationController.pushViewController(controller, animated: true)
                     }
                 }
-                if let currentState = starsContext.currentState, currentState.balance >= amount {
+                if let currentState = starsContext.currentState, currentState.balance >= StarsAmount(value: amount, nanos: 0) {
                     let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                     let controller = UndoOverlayController(
                         presentationData: presentationData,

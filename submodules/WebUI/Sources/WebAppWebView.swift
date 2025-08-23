@@ -48,7 +48,7 @@ private let selectionSource = "var css = '*{-webkit-touch-callout:none;} :not(in
         " style.appendChild(document.createTextNode(css)); head.appendChild(style);"
 
 private let videoSource = """
-function disableWebkitEnterFullscreen(videoElement) {
+function tgBrowserDisableWebkitEnterFullscreen(videoElement) {
   if (videoElement && videoElement.webkitEnterFullscreen) {
     Object.defineProperty(videoElement, 'webkitEnterFullscreen', {
       value: undefined
@@ -56,11 +56,11 @@ function disableWebkitEnterFullscreen(videoElement) {
   }
 }
 
-function disableFullscreenOnExistingVideos() {
-  document.querySelectorAll('video').forEach(disableWebkitEnterFullscreen);
+function tgBrowserDisableFullscreenOnExistingVideos() {
+  document.querySelectorAll('video').forEach(tgBrowserDisableWebkitEnterFullscreen);
 }
 
-function handleMutations(mutations) {
+function tgBrowserHandleMutations(mutations) {
   mutations.forEach((mutation) => {
     if (mutation.addedNodes && mutation.addedNodes.length > 0) {
       mutation.addedNodes.forEach((newNode) => {
@@ -75,33 +75,33 @@ function handleMutations(mutations) {
   });
 }
 
-disableFullscreenOnExistingVideos();
+tgBrowserDisableFullscreenOnExistingVideos();
 
-const observer = new MutationObserver(handleMutations);
+const _tgbrowser_observer = new MutationObserver(tgBrowserHandleMutations);
 
-observer.observe(document.body, {
+_tgbrowser_observer.observe(document.body, {
   childList: true,
   subtree: true
 });
 
-function disconnectObserver() {
-  observer.disconnect();
+function tgBrowserDisconnectObserver() {
+  _tgbrowser_observer.disconnect();
 }
 """
 
 final class WebAppWebView: WKWebView {
     var handleScriptMessage: (WKScriptMessage) -> Void = { _ in }
-    
-    var customBottomInset: CGFloat = 0.0 {
+
+    var customInsets: UIEdgeInsets = .zero {
         didSet {
-            if self.customBottomInset != oldValue {
+            if self.customInsets != oldValue {
                 self.setNeedsLayout()
             }
         }
     }
-    
+        
     override var safeAreaInsets: UIEdgeInsets {
-        return UIEdgeInsets(top: 0.0, left: 0.0, bottom: self.customBottomInset, right: 0.0)
+        return UIEdgeInsets(top: self.customInsets.top, left: self.customInsets.left, bottom: self.customInsets.bottom, right: self.customInsets.right)
     }
     
     init(account: Account) {
@@ -233,8 +233,11 @@ final class WebAppWebView: WKWebView {
     }
         
     func updateMetrics(height: CGFloat, isExpanded: Bool, isStable: Bool, transition: ContainedViewLayoutTransition) {
-        let data = "{height:\(height), is_expanded:\(isExpanded ? "true" : "false"), is_state_stable:\(isStable ? "true" : "false")}"
-        self.sendEvent(name: "viewport_changed", data: data)
+        let viewportData = "{height:\(height), is_expanded:\(isExpanded ? "true" : "false"), is_state_stable:\(isStable ? "true" : "false")}"
+        self.sendEvent(name: "viewport_changed", data: viewportData)
+        
+        let safeInsetsData = "{top:\(self.customInsets.top), bottom:\(self.customInsets.bottom), left:\(self.customInsets.left), right:\(self.customInsets.right)}"
+        self.sendEvent(name: "safe_area_changed", data: safeInsetsData)
     }
     
     var lastTouchTimestamp: Double?

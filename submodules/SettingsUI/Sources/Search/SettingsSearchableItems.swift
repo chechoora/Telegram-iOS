@@ -597,6 +597,8 @@ private func privacySearchableItems(context: AccountContext, privacySettings: Ac
                     current = info.bio
                 case .birthday:
                     current = info.birthday
+                case .giftsAutoSave:
+                    current = info.giftsAutoSave
             }
 
             present(.push, selectivePrivacySettingsController(context: context, kind: kind, current: current, callSettings: callSettings != nil ? (info.voiceCallsP2P, callSettings!.0) : nil, voipConfiguration: callSettings?.1, callIntegrationAvailable: CallKitIntegration.isAvailable, updated: { updated, updatedCallSettings, _, _ in
@@ -1068,7 +1070,7 @@ func settingsSearchableItems(context: AccountContext, notificationExceptionsList
         let faq = SettingsSearchableItem(id: .faq(0), title: strings.Settings_FAQ, alternate: synonyms(strings.SettingsSearch_Synonyms_FAQ), icon: .faq, breadcrumbs: [], present: { context, navigationController, present in
             let _ = (cachedFaqInstantPage(context: context)
             |> deliverOnMainQueue).start(next: { resolvedUrl in
-                context.sharedContext.openResolvedUrl(resolvedUrl, context: context, urlContext: .generic, navigationController: navigationController, forceExternal: false, openPeer: { peer, navigation in
+                context.sharedContext.openResolvedUrl(resolvedUrl, context: context, urlContext: .generic, navigationController: navigationController, forceExternal: false, forceUpdate: false, openPeer: { peer, navigation in
                 }, sendFile: nil, sendSticker: nil, sendEmoji: nil, requestMessageActionUrlAuth: nil, joinVoiceChat: nil, present: { controller, arguments in
                     present(.push, controller)
                 }, dismissInput: {}, contentContext: nil, progress: nil, completion: nil)

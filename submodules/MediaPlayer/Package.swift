@@ -42,6 +42,10 @@ let package = Package(
                       "MediaPlayerNode.swift",
                       "MediaPlayerAudioRenderer.swift",
                       "MediaPlayerFramePreview.swift",
-                      "VideoPlayerProxy.swift"]),
+                      "VideoPlayerProxy.swift",
+                      "ChunkMediaPlayer.swift",
+                      "ChunkMediaPlayerV2.swift",
+                      "ChunkMediaPlayerDirectFetchSourceImpl.swift"
+                     ]),
     ]
 )

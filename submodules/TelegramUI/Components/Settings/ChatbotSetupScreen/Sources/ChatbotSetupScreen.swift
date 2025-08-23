@@ -284,7 +284,7 @@ final class ChatbotSetupScreenComponent: Component {
                         }
                     }
                     
-                    self.botResolutionDisposable = (component.context.engine.peers.resolvePeerByName(name: cleanQuery)
+                    self.botResolutionDisposable = (component.context.engine.peers.resolvePeerByName(name: cleanQuery, referrer: nil)
                     |> delay(0.4, queue: .mainQueue())
                     |> deliverOnMainQueue).start(next: { [weak self] result in
                         guard let self else {
@@ -616,6 +616,7 @@ final class ChatbotSetupScreenComponent: Component {
                     maximumNumberOfLines: 0,
                     lineSpacing: 0.25,
                     highlightColor: environment.theme.list.itemAccentColor.withMultipliedAlpha(0.1),
+                    highlightInset: UIEdgeInsets(top: 0.0, left: 0.0, bottom: 0.0, right: -8.0),
                     highlightAction: { attributes in
                         if let _ = attributes[NSAttributedString.Key(rawValue: "URL")] {
                             return NSAttributedString.Key(rawValue: "URL")

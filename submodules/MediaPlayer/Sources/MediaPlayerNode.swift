@@ -19,6 +19,10 @@ private final class MediaPlayerNodeLayer: AVSampleBufferDisplayLayer {
         fatalError("init(coder:) has not been implemented")
     }
     
+    deinit {
+        assert(Queue.mainQueue().isCurrent())
+    }
+    
     override func action(forKey event: String) -> CAAction? {
         return MediaPlayerNodeLayerNullAction()
     }
@@ -66,7 +70,9 @@ public final class MediaPlayerNode: ASDisplayNode {
     
     private var videoNode: MediaPlayerNodeDisplayNode
     
-    private var videoLayer: AVSampleBufferDisplayLayer?
+    public private(set) var videoLayer: AVSampleBufferDisplayLayer?
+    private var videoLayerReadyForDisplayObserver: NSObjectProtocol?
+    private var didNotifyVideoLayerReadyForDisplay: Bool = false
     
     private let videoQueue: Queue
     
@@ -179,13 +185,16 @@ public final class MediaPlayerNode: ASDisplayNode {
         var state = state
         
         takeFrameQueue.async { [weak node] in
-            switch takeFrame() {
-            case let .restoreState(frames, atTime):
-                Queue.mainQueue().async {
-                    guard let strongSelf = node, let videoLayer = strongSelf.videoLayer else {
-                        return
+            let takeFrameResult = takeFrame()
+            switch takeFrameResult {
+            case let .restoreState(frames, atTime, soft):
+                if !soft {
+                    Queue.mainQueue().async {
+                        guard let strongSelf = node, let videoLayer = strongSelf.videoLayer else {
+                            return
+                        }
+                        videoLayer.flush()
                     }
-                    videoLayer.flush()
                 }
                 for i in 0 ..< frames.count {
                     let frame = frames[i]
@@ -193,22 +202,30 @@ public final class MediaPlayerNode: ASDisplayNode {
                     state.maxTakenTime = frameTime
                     let attachments = CMSampleBufferGetSampleAttachmentsArray(frame.sampleBuffer, createIfNecessary: true)! as NSArray
                     let dict = attachments[0] as! NSMutableDictionary
-                    if i == 0 {
+                    if i == 0 && !soft {
                         CMSetAttachment(frame.sampleBuffer, key: kCMSampleBufferAttachmentKey_ResetDecoderBeforeDecoding as NSString, value: kCFBooleanTrue as AnyObject, attachmentMode: kCMAttachmentMode_ShouldPropagate)
                         CMSetAttachment(frame.sampleBuffer, key: kCMSampleBufferAttachmentKey_EndsPreviousSampleDuration as NSString, value: kCFBooleanTrue as AnyObject, attachmentMode: kCMAttachmentMode_ShouldPropagate)
                     }
-                    if CMTimeCompare(frame.position, atTime) < 0 {
-                        dict.setValue(kCFBooleanTrue as AnyObject, forKey: kCMSampleAttachmentKey_DoNotDisplay as NSString as String)
-                    } else if CMTimeCompare(frame.position, atTime) == 0 {
-                        dict.setValue(kCFBooleanTrue as AnyObject, forKey: kCMSampleAttachmentKey_DisplayImmediately as NSString as String)
-                        dict.setValue(kCFBooleanTrue as AnyObject, forKey: kCMSampleBufferAttachmentKey_EndsPreviousSampleDuration as NSString as String)
+                    if !soft {
+                        if CMTimeCompare(frame.position, atTime) < 0 {
+                            dict.setValue(kCFBooleanTrue as AnyObject, forKey: kCMSampleAttachmentKey_DoNotDisplay as NSString as String)
+                        } else if CMTimeCompare(frame.position, atTime) == 0 {
+                            dict.setValue(kCFBooleanTrue as AnyObject, forKey: kCMSampleAttachmentKey_DisplayImmediately as NSString as String)
+                            dict.setValue(kCFBooleanTrue as AnyObject, forKey: kCMSampleBufferAttachmentKey_EndsPreviousSampleDuration as NSString as String)
+                        }
                     }
                     Queue.mainQueue().async {
                         guard let strongSelf = node, let videoLayer = strongSelf.videoLayer else {
                             return
                         }
                         videoLayer.enqueue(frame.sampleBuffer)
-                        strongSelf.hasSentFramesToDisplay?()
+                        if #available(iOS 17.4, *) {
+                        } else {
+                            if !strongSelf.didNotifyVideoLayerReadyForDisplay {
+                                strongSelf.didNotifyVideoLayerReadyForDisplay = true
+                                strongSelf.hasSentFramesToDisplay?()
+                            }
+                        }
                     }
                 }
                 Queue.mainQueue().async {
@@ -243,7 +260,10 @@ public final class MediaPlayerNode: ASDisplayNode {
                             return
                         }
                         videoLayer.enqueue(frame.sampleBuffer)
-                        strongSelf.hasSentFramesToDisplay?()
+                        if !strongSelf.didNotifyVideoLayerReadyForDisplay {
+                            strongSelf.didNotifyVideoLayerReadyForDisplay = true
+                            strongSelf.hasSentFramesToDisplay?()
+                        }
                     }
                     
                     Queue.mainQueue().async {
@@ -340,6 +360,18 @@ public final class MediaPlayerNode: ASDisplayNode {
                     strongSelf.updateLayout()
                     
                     strongSelf.layer.addSublayer(videoLayer)
+                    
+                    if #available(iOS 17.4, *) {
+                        strongSelf.videoLayerReadyForDisplayObserver = NotificationCenter.default.addObserver(forName: NSNotification.Name.AVSampleBufferDisplayLayerReadyForDisplayDidChange, object: videoLayer, queue: .main, using: { [weak strongSelf] _ in
+                            guard let strongSelf else {
+                                return
+                            }
+                            if !strongSelf.didNotifyVideoLayerReadyForDisplay {
+                                strongSelf.didNotifyVideoLayerReadyForDisplay = true
+                                strongSelf.hasSentFramesToDisplay?()
+                            }
+                        })
+                    }
                     
                     strongSelf.updateState()
                 }
