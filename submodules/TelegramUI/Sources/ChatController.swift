@@ -3974,6 +3974,7 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                 var isChannel = false
                 if case let .channel(peer) = peer, case .broadcast = peer.info {
                     isChannel = true
+                    return
                 }
                 var items: [ContextMenuItem] = [
                     .action(ContextMenuActionItem(text: isChannel ? strongSelf.presentationData.strings.Conversation_ContextMenuOpenChannelProfile : strongSelf.presentationData.strings.Conversation_ContextMenuOpenProfile, icon: { theme in
@@ -8649,7 +8650,10 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                     progress?.set(.single(true))
                 case let .result(peer):
                     progress?.set(.single(false))
-                    
+                    if case .channel(_) = peer {
+                         self.playShakeAnimation()
+                         return
+                     }
                     if let peer {
                         var navigation = navigation
                         if case .default = navigation {
@@ -8876,6 +8880,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
                     } else if let navigationController = strongSelf.effectiveNavigationController {
                         if case let .channel(channel) = peerId, channel.isForum, !channel.displayForumAsTabs {
                             strongSelf.context.sharedContext.navigateToForumChannel(context: strongSelf.context, peerId: peerId.id, navigationController: navigationController)
+                        } else if case .channel = peerId {
+                            self?.playShakeAnimation()
                         } else {
                             strongSelf.context.sharedContext.navigateToChatController(NavigateToChatControllerParams(navigationController: navigationController, context: strongSelf.context, chatLocation: .peer(peerId), subject: subject, updateTextInputState: !peerId.id.isGroupOrChannel ? textInputState : nil, keepStack: .always, peekData: peekData))
                         }

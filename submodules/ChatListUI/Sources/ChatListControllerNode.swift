@@ -1659,7 +1659,7 @@ final class ChatListControllerNode: ASDisplayNode, ASGestureRecognizerDelegate {
         
         let effectiveLocation = self.inlineStackContainerNode?.location ?? self.location
         
-        let filter: ChatListNodePeersFilter = []
+        let filter: ChatListNodePeersFilter = [.excludeChannels]
         if case .forum = effectiveLocation {
             //filter.insert(.excludeRecent)
         }
