@@ -1,0 +1,14 @@
+{
+	"bundle_id": "org.95c3060aaef2211b.Telegram",
+	"api_id": "23702740",
+	"api_hash": "5ef798e10eebda25f8af23fcfa307feb",
+	"team_id": "NUQM9SMQSZ",
+	"app_center_id": "0",
+	"is_internal_build": "true",
+	"is_appstore_build": "false",
+	"appstore_id": "0",
+	"app_specific_url_scheme": "tg",
+	"premium_iap_product_id": "",
+	"enable_siri": false,
+	"enable_icloud": false
+}
